@@ -1,0 +1,1348 @@
+{
+  "version": "1.0",
+  "description": "Major label and publisher database for copyright detection",
+  "last_updated": "2024-01-15",
+  "tiers": {
+    "green": {
+      "description": "Independent / Safe to use",
+      "risk_level": "low"
+    },
+    "yellow": {
+      "description": "Caution - Verify rights",
+      "risk_level": "medium"
+    },
+    "red": {
+      "description": "Major label content - High copyright risk",
+      "risk_level": "high"
+    }
+  },
+  "major_labels": [
+    {
+      "name": "Universal Music Group",
+      "aliases": ["UMG", "Universal Music", "Universal Music Group", "Interscope", "Def Jam", "Republic Records"],
+      "tier": "red",
+      "confidence": 0.95
+    },
+    {
+      "name": "Sony Music Entertainment",
+      "aliases": ["Sony Music", "Sony BMG", "Columbia Records", "Epic Records", "RCA Records", "Legacy Recordings"],
+      "tier": "red",
+      "confidence": 0.95
+    },
+    {
+      "name": "Warner Music Group",
+      "aliases": ["Warner Music", "Warner Bros Records", "Atlantic Records", "Elektra Records", "Warner Records", "Roadrunner Records"],
+      "tier": "red",
+      "confidence": 0.95
+    },
+    {
+      "name": "EMI Music",
+      "aliases": ["EMI", "EMI Records", "Capitol Records", "Virgin Records", "Parlophone", "Blue Note Records"],
+      "tier": "red",
+      "confidence": 0.95
+    },
+    {
+      "name": "BMG Rights Management",
+      "aliases": ["BMG", "BMG Rights", "BMG Music"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Concord Music Group",
+      "aliases": ["Concord", "Concord Records", "Fantasy Records", "Prestige Records", "Telarc"],
+      "tier": "yellow",
+      "confidence": 0.85
+    },
+    {
+      "name": "Independent Digital",
+      "aliases": ["DistroKid", "CD Baby", "TuneCore", "LANDR", "Amuse", "UnitedMasters", "AWAL"],
+      "tier": "green",
+      "confidence": 0.80
+    },
+    {
+      "name": "Arista Records",
+      "aliases": ["Arista", "Arista Nashville", "Arista Nashville Records"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Geffen Records",
+      "aliases": ["Geffen", "Geffen Records", "DGC Records"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Capitol Music Group",
+      "aliases": ["Capitol", "Capitol Records", "Capitol Music"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "MCA Nashville",
+      "aliases": ["MCA", "MCA Nashville", "MCA Records Nashville"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Mercury Nashville",
+      "aliases": ["Mercury", "Mercury Nashville", "Mercury Records Nashville"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Epic Records",
+      "aliases": ["Epic", "Epic Records", "Epic Nashville"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "RCA Records",
+      "aliases": ["RCA", "RCA Records", "RCA Victor", "RCA Nashville"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Columbia Records",
+      "aliases": ["Columbia", "Columbia Records", "Columbia Nashville"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Atlantic Records",
+      "aliases": ["Atlantic", "Atlantic Records", "Atlantic Nashville"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Interscope Records",
+      "aliases": ["Interscope", "Interscope Records", "Interscope Geffen A&M"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Def Jam Recordings",
+      "aliases": ["Def Jam", "Def Jam Recordings", "Def Jam South"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Republic Records",
+      "aliases": ["Republic", "Republic Records", "Republic Nashville"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Virgin Records",
+      "aliases": ["Virgin", "Virgin Records", "Virgin EMI"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Parlophone",
+      "aliases": ["Parlophone", "Parlophone Records"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Blue Note Records",
+      "aliases": ["Blue Note", "Blue Note Records"],
+      "tier": "red",
+      "confidence": 0.85
+    },
+    {
+      "name": "Motown Records",
+      "aliases": ["Motown", "Motown Records", "Universal Motown"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Island Records",
+      "aliases": ["Island", "Island Records", "Island Def Jam"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Elektra Records",
+      "aliases": ["Elektra", "Elektra Records", "Elektra Entertainment"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Asylum Records",
+      "aliases": ["Asylum", "Asylum Records"],
+      "tier": "red",
+      "confidence": 0.85
+    },
+    {
+      "name": "Sire Records",
+      "aliases": ["Sire", "Sire Records"],
+      "tier": "red",
+      "confidence": 0.85
+    },
+    {
+      "name": "Warner Bros Records",
+      "aliases": ["Warner Bros", "Warner Bros Records", "Warner Brothers"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Reprise Records",
+      "aliases": ["Reprise", "Reprise Records"],
+      "tier": "red",
+      "confidence": 0.85
+    },
+    {
+      "name": "Nonesuch Records",
+      "aliases": ["Nonesuch", "Nonesuch Records"],
+      "tier": "red",
+      "confidence": 0.80
+    },
+    {
+      "name": "Sub Pop Records",
+      "aliases": ["Sub Pop", "Sub Pop Records"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Matador Records",
+      "aliases": ["Matador", "Matador Records"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Merge Records",
+      "aliases": ["Merge", "Merge Records"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Domino Recording Company",
+      "aliases": ["Domino", "Domino Records"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "XL Recordings",
+      "aliases": ["XL", "XL Recordings"],
+      "tier": "yellow",
+      "confidence": 0.80
+    },
+    {
+      "name": "4AD",
+      "aliases": ["4AD", "4AD Records"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Rough Trade Records",
+      "aliases": ["Rough Trade", "Rough Trade Records"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Secretly Canadian",
+      "aliases": ["Secretly Canadian", "Secretly Group"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Dead Oceans",
+      "aliases": ["Dead Oceans"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Jagjaguwar",
+      "aliases": ["Jagjaguwar"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Captured Tracks",
+      "aliases": ["Captured Tracks"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Sacred Bones Records",
+      "aliases": ["Sacred Bones"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Ghostly International",
+      "aliases": ["Ghostly International"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Ninja Tune",
+      "aliases": ["Ninja Tune"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Warp Records",
+      "aliases": ["Warp", "Warp Records"],
+      "tier": "yellow",
+      "confidence": 0.80
+    },
+    {
+      "name": "Kompakt",
+      "aliases": ["Kompakt"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Anjunabeats",
+      "aliases": ["Anjunabeats"],
+      "tier": "yellow",
+      "confidence": 0.70
+    },
+    {
+      "name": "Armada Music",
+      "aliases": ["Armada", "Armada Music"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Spinnin' Records",
+      "aliases": ["Spinnin'", "Spinnin Records", "Spinnin' Records"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Monstercat",
+      "aliases": ["Monstercat"],
+      "tier": "yellow",
+      "confidence": 0.70
+    },
+    {
+      "name": "Owsla",
+      "aliases": ["Owsla"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Mad Decent",
+      "aliases": ["Mad Decent"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Fool's Gold Records",
+      "aliases": ["Fool's Gold", "Fools Gold"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Brainfeeder",
+      "aliases": ["Brainfeeder"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Stones Throw Records",
+      "aliases": ["Stones Throw"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Stiff Records",
+      "aliases": ["Stiff"],
+      "tier": "yellow",
+      "confidence": 0.70
+    },
+    {
+      "name": "Mute Records",
+      "aliases": ["Mute"],
+      "tier": "yellow",
+      "confidence": 0.80
+    },
+    {
+      "name": "Beggars Group",
+      "aliases": ["Beggars Group", "Beggars Banquet"],
+      "tier": "yellow",
+      "confidence": 0.80
+    },
+    {
+      "name": "Cherry Red Records",
+      "aliases": ["Cherry Red"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Tee Pee Records",
+      "aliases": ["Tee Pee"],
+      "tier": "green",
+      "confidence": 0.65
+    },
+    {
+      "name": "Relapse Records",
+      "aliases": ["Relapse"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Nuclear Blast",
+      "aliases": ["Nuclear Blast"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Century Media",
+      "aliases": ["Century Media"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Metal Blade Records",
+      "aliases": ["Metal Blade"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Season of Mist",
+      "aliases": ["Season of Mist"],
+      "tier": "yellow",
+      "confidence": 0.70
+    },
+    {
+      "name": "Southern Lord",
+      "aliases": ["Southern Lord"],
+      "tier": "yellow",
+      "confidence": 0.70
+    },
+    {
+      "name": "Sargent House",
+      "aliases": ["Sargent House"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Ipecac Recordings",
+      "aliases": ["Ipecac"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Temporary Residence",
+      "aliases": ["Temporary Residence"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Thrill Jockey",
+      "aliases": ["Thrill Jockey"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Drag City",
+      "aliases": ["Drag City"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Sub Pop",
+      "aliases": ["Sub Pop"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Third Man Records",
+      "aliases": ["Third Man"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "New West Records",
+      "aliases": ["New West"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Bloodshot Records",
+      "aliases": ["Bloodshot"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Yep Roc Records",
+      "aliases": ["Yep Roc"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Rounder Records",
+      "aliases": ["Rounder"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Sugar Hill Records",
+      "aliases": ["Sugar Hill"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Compass Records",
+      "aliases": ["Compass"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "ATO Records",
+      "aliases": ["ATO"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Dualtone Records",
+      "aliases": ["Dualtone"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Dine Alone Records",
+      "aliases": ["Dine Alone"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Arts & Crafts",
+      "aliases": ["Arts & Crafts"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Paper Bag Records",
+      "aliases": ["Paper Bag"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Six Shooter Records",
+      "aliases": ["Six Shooter"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Nettwerk Music Group",
+      "aliases": ["Nettwerk"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Lojinx",
+      "aliases": ["Lojinx"],
+      "tier": "green",
+      "confidence": 0.65
+    },
+    {
+      "name": "Bella Union",
+      "aliases": ["Bella Union"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "City Slang",
+      "aliases": ["City Slang"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "PIAS",
+      "aliases": ["PIAS", "Play It Again Sam"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Because Music",
+      "aliases": ["Because"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Kobalt Music",
+      "aliases": ["Kobalt"],
+      "tier": "yellow",
+      "confidence": 0.80
+    },
+    {
+      "name": "The Orchard",
+      "aliases": ["Orchard"],
+      "tier": "yellow",
+      "confidence": 0.80
+    },
+    {
+      "name": "Ingrooves",
+      "aliases": ["Ingrooves"],
+      "tier": "yellow",
+      "confidence": 0.80
+    },
+    {
+      "name": "Empire Distribution",
+      "aliases": ["Empire", "EMPIRE"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Roc Nation",
+      "aliases": ["Roc Nation"],
+      "tier": "yellow",
+      "confidence": 0.80
+    },
+    {
+      "name": "Quality Control Music",
+      "aliases": ["Quality Control", "QC"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Top Dawg Entertainment",
+      "aliases": ["TDE", "Top Dawg"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Dreamville Records",
+      "aliases": ["Dreamville"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "OVO Sound",
+      "aliases": ["OVO"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "XO Records",
+      "aliases": ["XO"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Young Money Entertainment",
+      "aliases": ["Young Money"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Cash Money Records",
+      "aliases": ["Cash Money"],
+      "tier": "red",
+      "confidence": 0.85
+    },
+    {
+      "name": "Bad Boy Records",
+      "aliases": ["Bad Boy"],
+      "tier": "red",
+      "confidence": 0.85
+    },
+    {
+      "name": "Aftermath Entertainment",
+      "aliases": ["Aftermath"],
+      "tier": "red",
+      "confidence": 0.85
+    },
+    {
+      "name": "Shady Records",
+      "aliases": ["Shady"],
+      "tier": "red",
+      "confidence": 0.85
+    },
+    {
+      "name": "G-Unit Records",
+      "aliases": ["G-Unit"],
+      "tier": "red",
+      "confidence": 0.80
+    },
+    {
+      "name": "Maybach Music Group",
+      "aliases": ["Maybach Music", "MMG"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Grand Hustle Records",
+      "aliases": ["Grand Hustle"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Taylor Gang Entertainment",
+      "aliases": ["Taylor Gang"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Rostrum Records",
+      "aliases": ["Rostrum"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Strange Music",
+      "aliases": ["Strange Music"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Rhymesayers Entertainment",
+      "aliases": ["Rhymesayers"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Duck Down Music",
+      "aliases": ["Duck Down"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Stones Throw",
+      "aliases": ["Stones Throw"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Lex Records",
+      "aliases": ["Lex"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Ninja Tune",
+      "aliases": ["Ninja Tune"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Big Dada",
+      "aliases": ["Big Dada"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Anticon",
+      "aliases": ["Anticon"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Definitive Jux",
+      "aliases": ["Def Jux", "Definitive Jux"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Fondle 'Em Records",
+      "aliases": ["Fondle 'Em"],
+      "tier": "green",
+      "confidence": 0.65
+    },
+    {
+      "name": "Rawkus Records",
+      "aliases": ["Rawkus"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Loud Records",
+      "aliases": ["Loud"],
+      "tier": "red",
+      "confidence": 0.80
+    },
+    {
+      "name": "Profile Records",
+      "aliases": ["Profile"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Tommy Boy Entertainment",
+      "aliases": ["Tommy Boy"],
+      "tier": "red",
+      "confidence": 0.80
+    },
+    {
+      "name": "Delicious Vinyl",
+      "aliases": ["Delicious Vinyl"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Priority Records",
+      "aliases": ["Priority"],
+      "tier": "red",
+      "confidence": 0.80
+    },
+    {
+      "name": "Ruthless Records",
+      "aliases": ["Ruthless"],
+      "tier": "red",
+      "confidence": 0.80
+    },
+    {
+      "name": "Death Row Records",
+      "aliases": ["Death Row"],
+      "tier": "red",
+      "confidence": 0.80
+    },
+    {
+      "name": "No Limit Records",
+      "aliases": ["No Limit"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Suave House Records",
+      "aliases": ["Suave House"],
+      "tier": "yellow",
+      "confidence": 0.70
+    },
+    {
+      "name": "Rap-A-Lot Records",
+      "aliases": ["Rap-A-Lot"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Swishahouse",
+      "aliases": ["Swishahouse"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Screwed Up Click",
+      "aliases": ["S.U.C.", "Screwed Up Click"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Hypnotize Minds",
+      "aliases": ["Hypnotize Minds"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Three 6 Mafia",
+      "aliases": ["Hypnotize Minds", "Three 6 Mafia"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "So So Def Recordings",
+      "aliases": ["So So Def"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "LaFace Records",
+      "aliases": ["LaFace"],
+      "tier": "red",
+      "confidence": 0.85
+    },
+    {
+      "name": "Arista Nashville",
+      "aliases": ["Arista Nashville"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "RCA Nashville",
+      "aliases": ["RCA Nashville"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Columbia Nashville",
+      "aliases": ["Columbia Nashville"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "MCA Nashville",
+      "aliases": ["MCA Nashville"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Mercury Nashville",
+      "aliases": ["Mercury Nashville"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Warner Music Nashville",
+      "aliases": ["Warner Nashville"],
+      "tier": "red",
+      "confidence": 0.90
+    },
+    {
+      "name": "Big Machine Records",
+      "aliases": ["Big Machine"],
+      "tier": "yellow",
+      "confidence": 0.80
+    },
+    {
+      "name": "Broken Bow Records",
+      "aliases": ["Broken Bow"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Black River Entertainment",
+      "aliases": ["Black River"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Average Joes Entertainment",
+      "aliases": ["Average Joes"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Thirty Tigers",
+      "aliases": ["Thirty Tigers"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Red Dirt",
+      "aliases": ["Red Dirt"],
+      "tier": "green",
+      "confidence": 0.65
+    },
+    {
+      "name": "Folkways Records",
+      "aliases": ["Folkways", "Smithsonian Folkways"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Vanguard Records",
+      "aliases": ["Vanguard"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Sugar Hill",
+      "aliases": ["Sugar Hill"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Rounder",
+      "aliases": ["Rounder"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Yep Roc",
+      "aliases": ["Yep Roc"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Bloodshot",
+      "aliases": ["Bloodshot"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "New West",
+      "aliases": ["New West"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Dualtone",
+      "aliases": ["Dualtone"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Compass",
+      "aliases": ["Compass"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "ATO",
+      "aliases": ["ATO"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Dine Alone",
+      "aliases": ["Dine Alone"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Arts & Crafts",
+      "aliases": ["Arts & Crafts"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Paper Bag",
+      "aliases": ["Paper Bag"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Six Shooter",
+      "aliases": ["Six Shooter"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Nettwerk",
+      "aliases": ["Nettwerk"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Lojinx",
+      "aliases": ["Lojinx"],
+      "tier": "green",
+      "confidence": 0.65
+    },
+    {
+      "name": "Bella Union",
+      "aliases": ["Bella Union"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "City Slang",
+      "aliases": ["City Slang"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "PIAS",
+      "aliases": ["PIAS"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Because",
+      "aliases": ["Because"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Kobalt",
+      "aliases": ["Kobalt"],
+      "tier": "yellow",
+      "confidence": 0.80
+    },
+    {
+      "name": "The Orchard",
+      "aliases": ["Orchard"],
+      "tier": "yellow",
+      "confidence": 0.80
+    },
+    {
+      "name": "Ingrooves",
+      "aliases": ["Ingrooves"],
+      "tier": "yellow",
+      "confidence": 0.80
+    },
+    {
+      "name": "Empire",
+      "aliases": ["Empire"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Roc Nation",
+      "aliases": ["Roc Nation"],
+      "tier": "yellow",
+      "confidence": 0.80
+    },
+    {
+      "name": "Quality Control",
+      "aliases": ["Quality Control"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "TDE",
+      "aliases": ["TDE"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Dreamville",
+      "aliases": ["Dreamville"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "OVO",
+      "aliases": ["OVO"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "XO",
+      "aliases": ["XO"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Young Money",
+      "aliases": ["Young Money"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Cash Money",
+      "aliases": ["Cash Money"],
+      "tier": "red",
+      "confidence": 0.85
+    },
+    {
+      "name": "Bad Boy",
+      "aliases": ["Bad Boy"],
+      "tier": "red",
+      "confidence": 0.85
+    },
+    {
+      "name": "Aftermath",
+      "aliases": ["Aftermath"],
+      "tier": "red",
+      "confidence": 0.85
+    },
+    {
+      "name": "Shady",
+      "aliases": ["Shady"],
+      "tier": "red",
+      "confidence": 0.85
+    },
+    {
+      "name": "G-Unit",
+      "aliases": ["G-Unit"],
+      "tier": "red",
+      "confidence": 0.80
+    },
+    {
+      "name": "Maybach Music",
+      "aliases": ["Maybach Music"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Grand Hustle",
+      "aliases": ["Grand Hustle"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Taylor Gang",
+      "aliases": ["Taylor Gang"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Rostrum",
+      "aliases": ["Rostrum"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Strange Music",
+      "aliases": ["Strange Music"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Rhymesayers",
+      "aliases": ["Rhymesayers"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Duck Down",
+      "aliases": ["Duck Down"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Stones Throw",
+      "aliases": ["Stones Throw"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Lex",
+      "aliases": ["Lex"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Ninja Tune",
+      "aliases": ["Ninja Tune"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Big Dada",
+      "aliases": ["Big Dada"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Anticon",
+      "aliases": ["Anticon"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Def Jux",
+      "aliases": ["Def Jux"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Fondle 'Em",
+      "aliases": ["Fondle 'Em"],
+      "tier": "green",
+      "confidence": 0.65
+    },
+    {
+      "name": "Rawkus",
+      "aliases": ["Rawkus"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Loud",
+      "aliases": ["Loud"],
+      "tier": "red",
+      "confidence": 0.80
+    },
+    {
+      "name": "Profile",
+      "aliases": ["Profile"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Tommy Boy",
+      "aliases": ["Tommy Boy"],
+      "tier": "red",
+      "confidence": 0.80
+    },
+    {
+      "name": "Delicious Vinyl",
+      "aliases": ["Delicious Vinyl"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Priority",
+      "aliases": ["Priority"],
+      "tier": "red",
+      "confidence": 0.80
+    },
+    {
+      "name": "Ruthless",
+      "aliases": ["Ruthless"],
+      "tier": "red",
+      "confidence": 0.80
+    },
+    {
+      "name": "Death Row",
+      "aliases": ["Death Row"],
+      "tier": "red",
+      "confidence": 0.80
+    },
+    {
+      "name": "No Limit",
+      "aliases": ["No Limit"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Suave House",
+      "aliases": ["Suave House"],
+      "tier": "yellow",
+      "confidence": 0.70
+    },
+    {
+      "name": "Rap-A-Lot",
+      "aliases": ["Rap-A-Lot"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "Swishahouse",
+      "aliases": ["Swishahouse"],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "S.U.C.",
+      "aliases": ["S.U.C."],
+      "tier": "green",
+      "confidence": 0.70
+    },
+    {
+      "name": "Hypnotize Minds",
+      "aliases": ["Hypnotize Minds"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "So So Def",
+      "aliases": ["So So Def"],
+      "tier": "yellow",
+      "confidence": 0.75
+    },
+    {
+      "name": "LaFace",
+      "aliases": ["LaFace"],
+      "tier": "red",
+      "confidence": 0.85
+    }
+  ],
+  "keywords": {
+    "red": [
+      "sony", "universal", "warner", "emi", "bmg", "columbia", "rca", "atlantic",
+      "interscope", "def jam", "republic", "capitol", "virgin", "parlophone",
+      "motown", "island", "elektra", "geffen", "arista", "loud", "priority",
+      "ruthless", "death row", "laface", "cash money", "bad boy", "aftermath",
+      "shady", "tommy boy", "epic", "mercury", "mca"
+    ],
+    "yellow": [
+      "concord", "sub pop", "matador", "domino", "xl", "4ad", "warp", "ninja tune",
+      "kompakt", "armada", "spinnin", "monstercat", "owsla", "mad decent",
+      "fool's gold", "brainfeeder", "stones throw", "mute", "beggars",
+      "city slang", "pias", "because", "kobalt", "the orchard", "ingrooves",
+      "empire", "roc nation", "quality control", "tde", "dreamville", "ovo",
+      "xo", "young money", "maybach music", "grand hustle", "taylor gang",
+      "rostrum", "rawkus", "profile", "delicious vinyl", "no limit", "suave house",
+      "rap-a-lot", "hypnotize minds", "so so def", "big machine", "broken bow",
+      "rounder", "sugar hill", "vanguard", "folkways", "ato"
+    ],
+    "green": [
+      "distrokid", "cd baby", "tunecore", "landr", "amuse", "unitedmasters",
+      "awal", "merge", "secretly canadian", "dead oceans", "jagjaguwar",
+      "captured tracks", "sacred bones", "ghostly international", "thrill jockey",
+      "drag city", "new west", "bloodshot", "yep roc", "compass", "dualtone",
+      "dine alone", "arts & crafts", "paper bag", "six shooter", "lojinx",
+      "bella union", "strange music", "rhymesayers", "duck down", "lex",
+      "big dada", "anticon", "def jux", "fondle 'em", "swishahouse",
+      "screwed up click", "tee pee", "temporary residence", "sargent house",
+      "black river", "average joes", "thirty tigers", "red dirt"
+    ]
+  }
+}

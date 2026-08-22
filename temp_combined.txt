@@ -1,0 +1,66 @@
+"""Agent Orchestrator V2 - Enhanced agent system for v1.1 Architecture > header.txt && echo Provides streaming reasoning JSON parsing, diff preview, and multi-agent coordination"""  
+import json  
+import uuid  
+from dataclasses import dataclass, field  
+from datetime import datetime  
+from PyQt6.QtCore import QObject, pyqtSignal  
+from .diff_engine import Transaction, DiffOperation, SongDocument  
+from .lock_manager import LockManager  
+from .selection_model import SelectionManager  
+  
+@dataclass  
+class AgentReasoning:  
+    agent_id: str = ""  
+    agent_name: str = ""  
+    reasoning_text: str = ""  
+    intent: str = ""  
+    confidence: float = 0.0  
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())  
+  
+@dataclass  
+class DiffPreview:  
+    transaction_id: str = ""  
+    operations: list = field(default_factory=list)  
+    can_apply: bool = True  
+  
+class AgentOrchestratorV2(QObject):  
+    reasoning_received = pyqtSignal(str, object)  
+    diff_preview_ready = pyqtSignal(str, object)  
+    transaction_applied = pyqtSignal(str, str)  
+  
+    def __init__(self, song_document=None):  
+        super().__init__()  
+        self.song_document = song_document or SongDocument()  
+        self.lock_manager = LockManager()  
+        self._agents = {}  
+        self._pending_previews = {}  
+        self._register_agents()  
+  
+    def _register_agents(self):  
+        agents = {"brainstorming": {"name": "Brainstorming Agent"}, "producer": {"name": "Producer Agent"}, "conductor": {"name": "Conductor Agent"}, "track": {"name": "Track Agent"}, "mixing": {"name": "Mixing Agent"}}  
+        for k, v in agents.items(): self._agents[k] = v  
+  
+    def parse_streaming_reasoning(self, agent_id, chunk):  
+        try:  
+            data = json.loads(chunk)  
+            return AgentReasoning(agent_id=agent_id, agent_name=self._agents.get(agent_id, {}).get("name", agent_id), reasoning_text=data.get("reasoning", ""), intent=data.get("intent", ""), confidence=data.get("confidence", 0.0))  
+        except: return None  
+  
+    def generate_diff_preview(self, agent_id, operations, reasoning=None):  
+        preview = DiffPreview(transaction_id=str(uuid.uuid4()), operations=operations)  
+        self._pending_previews[preview.transaction_id] = preview  
+        return preview  
+  
+    def apply_diff_preview(self, transaction_id, user_override=False):  
+        if transaction_id not in self._pending_previews: return False  
+        preview = self._pending_previews[transaction_id]  
+        transaction = Transaction(id=transaction_id, operations=preview.operations)  
+        success = self.song_document.apply_transaction(transaction)  
+        if success: del self._pending_previews[transaction_id]  
+        return success  
+  
+    def coordinate_agents(self, from_agent, to_agent, context):  
+        return {"from_agent": from_agent, "to_agent": to_agent, "context": context}  
+  
+    def get_agent_transparency_data(self, agent_id):  
+        return {"agent_id": agent_id, "agent_name": self._agents.get(agent_id, {}).get("name", agent_id)} 

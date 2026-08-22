@@ -1,0 +1,144 @@
+{
+  "sessions": {
+    "74216d46-88a6-4d38-9aef-13e06854dd22": {
+      "id": "74216d46-88a6-4d38-9aef-13e06854dd22",
+      "current_stage": "brainstorming",
+      "brainstorm_data": {
+        "genre": "",
+        "mood": "",
+        "style": "",
+        "purpose": "",
+        "tempo_preference": "",
+        "key_preference": "",
+        "reference_artists": [],
+        "reference_tracks": [],
+        "user_notes": "",
+        "approved": false
+      },
+      "production_plan": null,
+      "instrumentation_plan": null,
+      "track_data": null,
+      "mixing_plan": null,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Brainstorming Agent for a music production AI system. Your role is to \n            have a friendly, creative conversation with the user to understand their vision for a song.\n            \n            Ask about:\n            - Genre preferences (pop, hip hop, house, trap, rock, lo-fi, etc.)\n            - Mood and emotion they want to convey\n            - Style references (artists, songs, eras)\n            - Purpose (dance track, emotional ballad, background music, etc.)\n            - Tempo preferences (slow, medium, fast, or specific BPM)\n            - Key preferences (major/minor, specific key, or \"surprise me\")\n            \n            Be conversational and encouraging. Extract as much detail as possible while keeping it natural.\n            Once you have enough information, summarize the vision and ask if they're ready to move to \n            the Producer Agent who will create a structured plan.",
+          "timestamp": "2026-05-16T18:46:18.576701"
+        },
+        {
+          "role": "assistant",
+          "content": "Hi! I am your Brainstorming Agent. Let's explore your musical vision! Tell me about the genre, mood, style, or any artists that inspire you. What kind of track are you looking to create?",
+          "timestamp": "2026-05-16T18:46:18.576828"
+        }
+      ],
+      "created_at": "2026-05-16T18:46:18.576701",
+      "updated_at": "2026-05-16T18:46:18.576701",
+      "user_approvals": {}
+    },
+    "d62be7bd-4f57-4ac2-adb1-8c7301f8770b": {
+      "id": "d62be7bd-4f57-4ac2-adb1-8c7301f8770b",
+      "current_stage": "brainstorming",
+      "brainstorm_data": {
+        "genre": "",
+        "mood": "",
+        "style": "",
+        "purpose": "",
+        "tempo_preference": "",
+        "key_preference": "",
+        "reference_artists": [],
+        "reference_tracks": [],
+        "user_notes": "",
+        "approved": false
+      },
+      "production_plan": null,
+      "instrumentation_plan": null,
+      "track_data": null,
+      "mixing_plan": null,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Brainstorming Agent for a music production AI system. Your role is to \n            have a friendly, creative conversation with the user to understand their vision for a song.\n            \n            Ask about:\n            - Genre preferences (pop, hip hop, house, trap, rock, lo-fi, etc.)\n            - Mood and emotion they want to convey\n            - Style references (artists, songs, eras)\n            - Purpose (dance track, emotional ballad, background music, etc.)\n            - Tempo preferences (slow, medium, fast, or specific BPM)\n            - Key preferences (major/minor, specific key, or \"surprise me\")\n            \n            Be conversational and encouraging. Extract as much detail as possible while keeping it natural.\n            Once you have enough information, summarize the vision and ask if they're ready to move to \n            the Producer Agent who will create a structured plan.",
+          "timestamp": "2026-05-16T18:47:09.253375"
+        },
+        {
+          "role": "assistant",
+          "content": "Hi! I am your Brainstorming Agent. Let's explore your musical vision! Tell me about the genre, mood, style, or any artists that inspire you. What kind of track are you looking to create?",
+          "timestamp": "2026-05-16T18:47:09.253416"
+        }
+      ],
+      "created_at": "2026-05-16T18:47:09.253375",
+      "updated_at": "2026-05-16T18:47:09.253375",
+      "user_approvals": {}
+    },
+    "3881c403-9c84-4c27-8101-ee7c1baf6173": {
+      "id": "3881c403-9c84-4c27-8101-ee7c1baf6173",
+      "current_stage": "brainstorming",
+      "brainstorm_data": {
+        "genre": "",
+        "mood": "",
+        "style": "",
+        "purpose": "",
+        "tempo_preference": "",
+        "key_preference": "",
+        "reference_artists": [],
+        "reference_tracks": [],
+        "user_notes": "",
+        "approved": false
+      },
+      "production_plan": null,
+      "instrumentation_plan": null,
+      "track_data": null,
+      "mixing_plan": null,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Brainstorming Agent for a music production AI system. Your role is to \n            have a friendly, creative conversation with the user to understand their vision for a song.\n            \n            Ask about:\n            - Genre preferences (pop, hip hop, house, trap, rock, lo-fi, etc.)\n            - Mood and emotion they want to convey\n            - Style references (artists, songs, eras)\n            - Purpose (dance track, emotional ballad, background music, etc.)\n            - Tempo preferences (slow, medium, fast, or specific BPM)\n            - Key preferences (major/minor, specific key, or \"surprise me\")\n            \n            Be conversational and encouraging. Extract as much detail as possible while keeping it natural.\n            Once you have enough information, summarize the vision and ask if they're ready to move to \n            the Producer Agent who will create a structured plan.",
+          "timestamp": "2026-05-16T18:47:57.509079"
+        },
+        {
+          "role": "assistant",
+          "content": "Hi! I am your Brainstorming Agent. Let's explore your musical vision! Tell me about the genre, mood, style, or any artists that inspire you. What kind of track are you looking to create?",
+          "timestamp": "2026-05-16T18:47:57.509125"
+        }
+      ],
+      "created_at": "2026-05-16T18:47:57.509079",
+      "updated_at": "2026-05-16T18:47:57.509079",
+      "user_approvals": {}
+    },
+    "92df6d72-89a5-4628-aaa7-cc212424bfb8": {
+      "id": "92df6d72-89a5-4628-aaa7-cc212424bfb8",
+      "current_stage": "brainstorming",
+      "brainstorm_data": {
+        "genre": "",
+        "mood": "",
+        "style": "",
+        "purpose": "",
+        "tempo_preference": "",
+        "key_preference": "",
+        "reference_artists": [],
+        "reference_tracks": [],
+        "user_notes": "",
+        "approved": false
+      },
+      "production_plan": null,
+      "instrumentation_plan": null,
+      "track_data": null,
+      "mixing_plan": null,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Brainstorming Agent for a music production AI system. Your role is to \n            have a friendly, creative conversation with the user to understand their vision for a song.\n            \n            Ask about:\n            - Genre preferences (pop, hip hop, house, trap, rock, lo-fi, etc.)\n            - Mood and emotion they want to convey\n            - Style references (artists, songs, eras)\n            - Purpose (dance track, emotional ballad, background music, etc.)\n            - Tempo preferences (slow, medium, fast, or specific BPM)\n            - Key preferences (major/minor, specific key, or \"surprise me\")\n            \n            Be conversational and encouraging. Extract as much detail as possible while keeping it natural.\n            Once you have enough information, summarize the vision and ask if they're ready to move to \n            the Producer Agent who will create a structured plan.",
+          "timestamp": "2026-05-16T18:48:37.821047"
+        },
+        {
+          "role": "assistant",
+          "content": "Hi! I am your Brainstorming Agent. Let's explore your musical vision! Tell me about the genre, mood, style, or any artists that inspire you. What kind of track are you looking to create?",
+          "timestamp": "2026-05-16T18:48:37.821084"
+        }
+      ],
+      "created_at": "2026-05-16T18:48:37.821047",
+      "updated_at": "2026-05-16T18:48:37.821047",
+      "user_approvals": {}
+    }
+  }
+}
