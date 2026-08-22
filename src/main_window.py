@@ -19,6 +19,7 @@ from track_panel import TrackPanel
 from transport_controls import TransportControls
 from chat_widget import ChatWidget
 from project import ProjectManager
+from audio_engine import AudioEngine
 
 
 class MainWindow(QMainWindow):
@@ -33,6 +34,8 @@ class MainWindow(QMainWindow):
         self.project_manager = ProjectManager()
         self.current_project_path = None
         self.is_modified = False
+        self.audio_engine = AudioEngine()
+        self.audio_engine.initialize()
         
         self.setWindowTitle("AI-Integrated DAW")
         self.setGeometry(100, 100, 1400, 900)
@@ -85,6 +88,9 @@ class MainWindow(QMainWindow):
         self.transport.stop_clicked.connect(self._on_stop)
         self.transport.record_clicked.connect(self._on_record)
         self.transport.bpm_changed.connect(self._on_bpm_changed)
+        self.audio_engine.playback_position_changed.connect(self._on_playback_position)
+        self.audio_engine.playback_finished.connect(self._on_engine_finished)
+        self.audio_engine.error_occurred.connect(self._on_engine_error)
         
     def _create_actions(self):
         """Create all application actions"""
@@ -441,17 +447,36 @@ class MainWindow(QMainWindow):
     def _on_play(self):
         """Handle play button"""
         self.status_label.setText("Playing...")
+        self.audio_engine.play(start_position=self.timeline.playhead_position)
         self.timeline.start_playback()
         
     def _on_pause(self):
         """Handle pause button"""
         self.status_label.setText("Paused")
+        self.audio_engine.pause()
         self.timeline.pause_playback()
         
     def _on_stop(self):
         """Handle stop button"""
         self.status_label.setText("Stopped")
+        self.audio_engine.stop()
         self.timeline.stop_playback()
+
+    def _on_playback_position(self, position):
+        """Keep the status-bar clock on the engine playhead"""
+        minutes = int(position // 60)
+        seconds = int(position % 60)
+        millis = int((position % 1) * 1000)
+        self.position_label.setText(f"{minutes:02d}:{seconds:02d}:{millis:03d}")
+
+    def _on_engine_finished(self):
+        """Engine reached the end of the mix"""
+        self.status_label.setText("Stopped")
+        self.timeline.stop_playback()
+
+    def _on_engine_error(self, message):
+        """Surface engine errors in the status bar"""
+        self.status_label.setText(message)
         
     def _on_record(self):
         """Handle record button"""
@@ -527,6 +552,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Handle window close"""
         if self._check_save():
+            self.audio_engine.stop()
             event.accept()
         else:
             event.ignore()
