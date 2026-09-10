@@ -310,7 +310,7 @@ class AudioEngine(QObject):
         self.track_mutes = {}    # track_id: muted
         self.track_solos = {}    # track_id: soloed
         self.track_outputs = {}  # track_id: "master", dest track id (int), or bus name
-        self._buses = set()      # in-memory named mix buses (not persisted)
+        self._buses = set()      # named mix buses; persisted by ProjectManager
         self.track_sends = {}    # track_id: list of extra dests (bus name or live track id)
         self.track_send_levels = {}  # track_id: {dest: finite non-negative gain}; default 1.0
         # Optional test hook: callable(track_id, audio) -> audio. None = use rack apply_inserts.
@@ -1305,7 +1305,7 @@ class AudioEngine(QObject):
         return dest
 
     def add_bus(self, name: str):
-        """Register a named mix bus (in-memory mix-graph only, not persisted).
+        """Register a named mix bus (live graph; ProjectManager persists in .daw).
 
         Bus names are non-empty strings other than ``"master"``. Duplicate
         add is idempotent. Buses mix to master with no fader in this slice.
@@ -1388,7 +1388,7 @@ class AudioEngine(QObject):
         ``dest``. dest cannot be ``"master"`` (main output already
         covers master). Duplicate send to the same dest is idempotent
         (no double mix; existing level is kept). Self-send is rejected.
-        Sends are in-memory mix-graph only (not persisted).
+        Live graph only here; ProjectManager persists sends in .daw 1.1.
 
         ``level`` must be a finite non-negative gain. 0.0 silences only
         the send path. Unknown dest is ValueError.

@@ -822,13 +822,29 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(title)
         
     def _get_project_data(self):
-        """Get current project data for saving"""
-        return {
-            'version': '1.0',
+        """Get current project data for saving (schema 1.1 envelope).
+
+        Graph keys (buses / outputs / sends) are overlaid from the engine
+        in ProjectManager.save_project. Inserts and clip maps are carried
+        from the last loaded/new project so File>Save does not drop them.
+        """
+        prior = getattr(self.project_manager, "current_project", None) or {}
+        data = {
+            'version': ProjectManager.SCHEMA_VERSION,
             'timeline': self.timeline.get_state(),
             'tracks': self.track_panel.get_state(),
-            'transport': self.transport.get_state()
+            'transport': self.transport.get_state(),
+            'clips': prior.get('clips') if prior.get('clips') is not None else {},
+            'midi_clips': prior.get('midi_clips') if prior.get('midi_clips') is not None else {},
+            'inserts': prior.get('inserts') if prior.get('inserts') is not None else {},
         }
+        if prior.get('name') is not None:
+            data['name'] = prior['name']
+        if prior.get('created_at') is not None:
+            data['created_at'] = prior['created_at']
+        if prior.get('settings') is not None:
+            data['settings'] = prior['settings']
+        return data
         
     def _load_project_data(self, data):
         """Load project data into UI"""
@@ -842,10 +858,15 @@ class MainWindow(QMainWindow):
         self.audio_engine.clear()
         for clip in self.timeline.clips.values():
             self.audio_engine.load_audio(clip)
-        # clear() wipes in-session buses; restore unused buses even when
-        # track_outputs is empty so File>Open keeps the .daw buses list.
+        # clear() wipes in-session buses/sends; restore after clips so
+        # unused buses and send-to-track dests can be live.
         self.project_manager._apply_buses(self.audio_engine, data.get('buses'))
         self.project_manager._apply_track_outputs(self.audio_engine, outputs)
+        self.project_manager._apply_sends(
+            self.audio_engine,
+            data.get('track_sends'),
+            data.get('track_send_levels'),
+        )
         self.track_panel.sync_outputs_from_engine(self.audio_engine)
             
     def _autosave(self):
