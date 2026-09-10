@@ -13,12 +13,12 @@ Repo: https://github.com/DJ848arch/AI-powered-DAW-V2
 If ClickUp has approved open goals: work the highest, in a small daily increment. Fix anything that breaks Play/save/tests first.
 If ClickUp has no approved goals: propose goals to Daniel. Do not start them until he approves.
 
-## Current approved goals (Daniel, 2026-08-27; still current 2026-08-28)
+## Current approved goals (Daniel, 2026-09-09 evening)
 
-- M1 Routing only. Engine owns routing. Daily incremental work.
-- 2026-08-27 DONE: persist/restore `track_outputs`, multi-track cycle detection (independent QA).
-- 2026-08-28 TODAY: graph validation (Engine), dest UI picker (UI), buses model+mix (Engine).
-- Not approved: FluidSynth, unify .daw/SongDocument, GitHub catch-up, C++ blank Edit, OpenJarvis, JUCE, new AI features or roles.
+- M1 Routing Core approved. M2 ordered: Real Audio Graph + Schema Unification.
+- THIS increment: first three only — schema audit + authoritative model (`SCHEMA.md`), `.daw` load/save on schema 1.1 with M1 compat, regression + round-trip tests.
+- Engine stays authoritative for signal flow. No FluidSynth, JUCE, OpenJarvis, C++ Edit, new AI. No real insert DSP / send-audio / bus-mixer / metering this slice.
+- C++ `SongDocument` remains a separate format (do not unify).
 
 ClickUp task id `86bbngfza` (retitled **M1 Routing — APPROVED** on 2026-08-28). Daily work lives in folder AI-Powered DAW / list M1 Routing — APPROVED (`901419670127`).
 
