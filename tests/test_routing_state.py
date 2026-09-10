@@ -15,6 +15,8 @@ import pytest
 from audio_engine import AudioEngine
 from project import ProjectManager
 
+SCHEMA = ProjectManager.SCHEMA_VERSION
+
 
 SR = 8000
 
@@ -62,8 +64,11 @@ def _combo_labels(widget):
 # ---------------------------------------------------------------------------
 
 
-def test_persist_keys_buses_and_dest_not_sends(tmp_path, qapp):
-    """Save with bus, dest, and send: .daw has buses + dest; no send persist."""
+def test_persist_keys_buses_dest_and_sends(tmp_path, qapp):
+    """Save with bus, dest, and send: .daw 1.1 has buses + dest + sends.
+
+    Engine get_state() still omits buses/sends (M1 lock; Core is the adapter).
+    """
     pm = _pm(tmp_path)
     engine = AudioEngine(sample_rate=SR)
     engine.load_audio(0, _tone(64, 0.2))
@@ -75,11 +80,12 @@ def test_persist_keys_buses_and_dest_not_sends(tmp_path, qapp):
 
     with open(path, "r") as f:
         data = json.load(f)
-    assert data["version"] == "1.0"
+    assert data["version"] == SCHEMA
     assert "drum" in data.get("buses", [])
     assert _dest_for_track(data.get("track_outputs"), 0) == "drum"
+    assert data.get("track_sends", {}).get("0") == ["drum"]
+    assert data.get("track_send_levels", {}).get("0", {}).get("drum") == 1.0
     assert "sends" not in data
-    assert "track_sends" not in data
 
     state = engine.get_state()
     assert "buses" not in state
@@ -97,8 +103,9 @@ def test_missing_keys_default_master_no_buses_no_sends(tmp_path, qapp):
 
     engine = AudioEngine(sample_rate=SR)
     loaded = pm.load_project(path, engine=engine)
-    assert "buses" not in loaded
-    assert "track_outputs" not in loaded or not loaded.get("track_outputs")
+    assert loaded.get("buses") == []
+    assert not loaded.get("track_outputs")
+    assert not loaded.get("track_sends")
     assert "sends" not in loaded
     assert engine.list_buses() == []
     assert engine.get_track_output(0) == "master"

@@ -8,6 +8,8 @@ import pytest
 
 from project import ProjectManager
 
+SCHEMA = ProjectManager.SCHEMA_VERSION
+
 
 def _pm(tmp_path):
     return ProjectManager(projects_dir=str(tmp_path / "projects"))
@@ -22,7 +24,7 @@ def test_new_save_load_roundtrip(tmp_path):
 
     loaded = pm.load_project(path)
     assert loaded["name"] == "My Song"
-    assert loaded["version"] == "1.0"
+    assert loaded["version"] == SCHEMA
     assert "timeline" in loaded
     assert "transport" in loaded
     assert pm.current_project is loaded
@@ -45,7 +47,7 @@ def test_overwrite_backup_contains_old_data(tmp_path):
     with open(backups[0], "r") as f:
         backup_data = json.load(f)
     assert backup_data["name"] == "Project A"
-    assert backup_data["version"] == "1.0"
+    assert backup_data["version"] == SCHEMA
 
     loaded = pm.load_project(path)
     assert loaded["name"] == "Project B"
@@ -127,7 +129,7 @@ def test_autosave_writes_valid_json(tmp_path):
     with open(autosave_path, "r") as f:
         data = json.load(f)
     assert data["name"] == "Autosave Me"
-    assert data["version"] == "1.0"
+    assert data["version"] == SCHEMA
 
 
 def test_backup_rotation_keeps_at_most_10(tmp_path, monkeypatch):
