@@ -27,9 +27,23 @@ from lock_manager import LockManager
 try:
     from openjarvis_client import OpenJarvisClient, FallbackAIClient
     OPENJARVIS_AVAILABLE = True
-except ImportError:
+except Exception:
     OPENJARVIS_AVAILABLE = False
     print("Warning: openjarvis_client not available. Using fallback mode.")
+    try:
+        from openjarvis_client import FallbackAIClient
+    except Exception:
+        from PyQt6.QtCore import QObject, pyqtSignal
+
+        class FallbackAIClient(QObject):
+            response_ready = pyqtSignal(str, object)
+            error_occurred = pyqtSignal(str, str)
+
+            def initialize(self, *args, **kwargs):
+                return False
+
+            def close(self):
+                pass
 
 
 class AgentStage(Enum):

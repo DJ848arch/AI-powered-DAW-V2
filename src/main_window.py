@@ -20,6 +20,10 @@ from transport_controls import TransportControls
 from chat_widget import ChatWidget
 from project import ProjectManager
 from audio_engine import AudioEngine
+from midi_clip import MidiClip, MidiNote
+from piano_roll import PianoRoll
+from agent_manager import AgentManager
+import midi_synth
 
 
 class MainWindow(QMainWindow):
@@ -36,6 +40,9 @@ class MainWindow(QMainWindow):
         self.is_modified = False
         self.audio_engine = AudioEngine()
         self.audio_engine.initialize()
+        self.midi_clips: list[MidiClip] = []
+        self.agent_manager = AgentManager()
+        self._applied_track_session = None
         
         self.setWindowTitle("AI-Integrated DAW")
         self.setGeometry(100, 100, 1400, 900)
@@ -71,6 +78,7 @@ class MainWindow(QMainWindow):
         
         # Track panel on left
         self.track_panel = TrackPanel()
+        self.track_panel.set_engine(self.audio_engine)
         self.main_splitter.addWidget(self.track_panel)
         
         # Timeline in center
@@ -91,6 +99,8 @@ class MainWindow(QMainWindow):
         self.audio_engine.playback_position_changed.connect(self._on_playback_position)
         self.audio_engine.playback_finished.connect(self._on_engine_finished)
         self.audio_engine.error_occurred.connect(self._on_engine_error)
+        self.track_panel.track_selected.connect(self._on_track_selected)
+        self.track_panel.output_changed.connect(self._on_track_output_changed)
         
     def _create_actions(self):
         """Create all application actions"""
@@ -289,6 +299,20 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.chat_dock)
         self.chat_dock.hide()
+
+        self.piano_roll = PianoRoll()
+        self.piano_roll_dock = QDockWidget("Piano Roll", self)
+        self.piano_roll_dock.setWidget(self.piano_roll)
+        self.piano_roll_dock.setAllowedAreas(
+            Qt.DockWidgetArea.BottomDockWidgetArea |
+            Qt.DockWidgetArea.TopDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.piano_roll_dock)
+        self.piano_roll.set_clip(self._clip_for_selected_track())
+        self.piano_roll.note_added.connect(self._on_midi_note_added)
+        self.chat_widget.set_agent_manager(self.agent_manager)
+        self.chat_widget.stage_approved.connect(self._on_stage_approved)
+        self.agent_manager.production_complete.connect(self._on_agent_production_complete)
         
     # ===== Action Handlers =====
     
@@ -298,6 +322,9 @@ class MainWindow(QMainWindow):
             self.project_manager.new_project()
             self.timeline.clear()
             self.track_panel.clear()
+            self.midi_clips = []
+            self._applied_track_session = None
+            self.piano_roll.set_clip(self._clip_for_selected_track())
             self.current_project_path = None
             self.is_modified = False
             self._update_title()
@@ -314,7 +341,9 @@ class MainWindow(QMainWindow):
         
         if file_path:
             try:
-                project_data = self.project_manager.load_project(file_path)
+                project_data = self.project_manager.load_project(
+                    file_path, engine=self.audio_engine
+                )
                 self._load_project_data(project_data)
                 self.current_project_path = file_path
                 self.is_modified = False
@@ -344,7 +373,9 @@ class MainWindow(QMainWindow):
         """Perform the actual save operation"""
         try:
             project_data = self._get_project_data()
-            self.project_manager.save_project(file_path, project_data)
+            self.project_manager.save_project(
+                file_path, project_data, engine=self.audio_engine
+            )
             self.current_project_path = file_path
             self.is_modified = False
             self._update_title()
@@ -447,6 +478,26 @@ class MainWindow(QMainWindow):
     def _on_play(self):
         """Handle play button"""
         self.status_label.setText("Playing...")
+        self.audio_engine.clear()
+        for clip in self.timeline.clips.values():
+            if isinstance(clip, MidiClip):
+                continue
+            self.audio_engine.load_audio(clip)
+        rendered_midi = set()
+        for clip in list(self.timeline.clips.values()) + list(self.midi_clips):
+            if not isinstance(clip, MidiClip):
+                continue
+            cid = getattr(clip, "id", id(clip))
+            if cid in rendered_midi:
+                continue
+            rendered_midi.add(cid)
+            if not clip.notes:
+                continue
+            audio = midi_synth.render_midi(
+                clip.notes, instrument=clip.instrument, bpm=clip.bpm
+            )
+            start = getattr(clip, "start_time", 0.0) or 0.0
+            self.audio_engine.load_audio(clip.track_id, audio, start=start)
         self.audio_engine.play(start_position=self.timeline.playhead_position)
         self.timeline.start_playback()
         
@@ -486,6 +537,260 @@ class MainWindow(QMainWindow):
         """Handle BPM change"""
         self.timeline.set_bpm(bpm)
         
+    def _clip_for_selected_track(self) -> MidiClip:
+        """Return the MidiClip the piano roll should edit for the selected track."""
+        track_id = self.track_panel.get_selected_track()
+        if track_id is None:
+            track_id = 0
+        for clip in self.midi_clips:
+            if clip.track_id == track_id:
+                return clip
+        bpm = float(getattr(self.transport, "bpm", 120) or 120)
+        clip = MidiClip(track_id=track_id, name=f"MIDI {track_id}", bpm=bpm)
+        self.midi_clips.append(clip)
+        return clip
+
+    def _on_track_output_changed(self, track_id, dest):
+        """Write picker dest through engine.set_track_output; revert on reject."""
+        engine = getattr(self, "audio_engine", None)
+        if engine is None:
+            return
+        try:
+            engine.set_track_output(track_id, dest)
+        except ValueError:
+            self.track_panel.set_track_output(
+                track_id, engine.get_track_output(track_id)
+            )
+            return
+        self.is_modified = True
+
+    def _on_track_selected(self, track_id: int):
+        """Point the piano roll at this track's MidiClip."""
+        clip = None
+        for existing in self.midi_clips:
+            if existing.track_id == track_id:
+                clip = existing
+                break
+        if clip is None:
+            bpm = float(getattr(self.transport, "bpm", 120) or 120)
+            clip = MidiClip(track_id=track_id, name=f"MIDI {track_id}", bpm=bpm)
+            self.midi_clips.append(clip)
+        self.piano_roll.set_clip(clip)
+
+    def _on_midi_note_added(self, note):
+        self.is_modified = True
+
+    def _on_stage_approved(self, stage: str):
+        """Apply tracks when the track stage is approved (chat may emit the next stage)."""
+        if stage in ("track", "mixing", "complete"):
+            self._apply_session_track_data()
+
+    def _on_agent_production_complete(self, session_id: str, final_data: dict):
+        self._apply_session_track_data(final_data=final_data, session_id=session_id)
+
+    def apply_track_data(self, track_data=None, session_id=None):
+        """Apply TrackData / dict, or write the fallback pop sketch."""
+        if track_data is None:
+            return self._apply_session_track_data(session_id=session_id)
+        if isinstance(track_data, dict) and "track_data" in track_data:
+            return self._apply_session_track_data(final_data=track_data, session_id=session_id)
+        return self._apply_session_track_data(
+            final_data={"track_data": track_data}, session_id=session_id
+        )
+
+    def _apply_session_track_data(self, final_data=None, session_id=None):
+        """Create timeline tracks and MidiClips from session.track_data."""
+        sid = session_id or getattr(self.chat_widget, "session_id", None)
+        if sid and sid == self._applied_track_session:
+            return
+
+        session = None
+        if sid and hasattr(self, "agent_manager"):
+            session = self.agent_manager.get_session(sid)
+
+        track_data = None
+        inst_tracks = []
+        bpm = float(getattr(self.transport, "bpm", 120) or 120)
+
+        if session is not None:
+            track_data = session.track_data
+            if session.production_plan and getattr(session.production_plan, "tempo_bpm", None):
+                bpm = float(session.production_plan.tempo_bpm or bpm)
+            plan = session.instrumentation_plan
+            if plan is not None and getattr(plan, "tracks", None):
+                inst_tracks = list(plan.tracks)
+
+        if final_data is not None:
+            if hasattr(final_data, "midi_patterns") and not isinstance(final_data, dict):
+                track_data = final_data
+            elif isinstance(final_data, dict):
+                td = final_data.get("track_data")
+                if td:
+                    track_data = td
+                pp = final_data.get("production_plan") or {}
+                if isinstance(pp, dict) and pp.get("tempo_bpm"):
+                    bpm = float(pp["tempo_bpm"])
+                ip = final_data.get("instrumentation_plan") or {}
+                if isinstance(ip, dict) and ip.get("tracks"):
+                    inst_tracks = list(ip["tracks"])
+
+        patterns = []
+        created = []
+        if track_data is not None:
+            if hasattr(track_data, "midi_patterns"):
+                patterns = list(track_data.midi_patterns or [])
+                created = list(getattr(track_data, "created_tracks", None) or [])
+            elif isinstance(track_data, dict):
+                patterns = list(track_data.get("midi_patterns") or [])
+                created = list(track_data.get("created_tracks") or [])
+
+        if not patterns:
+            self._apply_fallback_pop_sketch(bpm)
+        else:
+            self._apply_midi_patterns(patterns, created, inst_tracks, bpm)
+
+        if sid:
+            self._applied_track_session = sid
+        self.piano_roll.set_clip(self._clip_for_selected_track())
+        self.is_modified = True
+
+    def _instrument_kind(self, name: str) -> str:
+        blob = (name or "").lower()
+        if any(w in blob for w in ("drum", "kick", "snare", "hat", "perc", "kit")):
+            return "drums"
+        if "bass" in blob:
+            return "bass"
+        if any(w in blob for w in ("lead", "synth", "saw")):
+            return "lead"
+        return "piano"
+
+    def _ensure_named_track(self, name: str) -> int:
+        name = name or "Track"
+        for tid, widget in self.track_panel.tracks.items():
+            if getattr(widget, "name", None) == name:
+                if tid not in self.timeline.tracks:
+                    self.timeline.add_track(tid, name)
+                return tid
+        tid = self.track_panel.add_track(name)
+        self.timeline.add_track(tid, name)
+        return tid
+
+    def _notes_from_pattern(self, raw_notes):
+        notes = []
+        for n in raw_notes or []:
+            if isinstance(n, MidiNote):
+                notes.append(n)
+                continue
+            if not isinstance(n, dict):
+                continue
+            data = {
+                "pitch": n.get("pitch", n.get("note", 60)),
+                "start_beat": n.get("start_beat", n.get("beat", 0.0)),
+                "duration_beats": n.get("duration_beats", n.get("duration", 1.0)),
+                "velocity": n.get("velocity", 100),
+            }
+            notes.append(MidiNote.from_dict(data))
+        return notes
+
+    def _apply_midi_patterns(self, patterns, created, inst_tracks, bpm):
+        for spec in list(created) + list(inst_tracks):
+            if not isinstance(spec, dict):
+                continue
+            name = (
+                spec.get("instrument")
+                or spec.get("track_name")
+                or spec.get("name")
+                or spec.get("track")
+            )
+            if name:
+                self._ensure_named_track(str(name))
+
+        last_clip = None
+        for pattern in patterns:
+            if not isinstance(pattern, dict):
+                continue
+            track_name = (
+                pattern.get("track")
+                or pattern.get("instrument")
+                or pattern.get("name")
+                or "MIDI"
+            )
+            tid = self._ensure_named_track(str(track_name))
+            notes = self._notes_from_pattern(pattern.get("notes"))
+            if not notes:
+                continue
+            clip = MidiClip(
+                name=str(track_name),
+                track_id=tid,
+                instrument=self._instrument_kind(str(track_name)),
+                bpm=float(bpm),
+                notes=notes,
+            )
+            start_bar = float(pattern.get("start_bar", 0) or 0)
+            start_time = start_bar * 4.0 * (60.0 / float(bpm or 120))
+            clip.start_time = start_time
+            self.midi_clips.append(clip)
+            if tid in self.timeline.tracks:
+                self.timeline.add_clip(tid, clip, start_time)
+            last_clip = clip
+
+        if last_clip is not None:
+            self.piano_roll.set_clip(last_clip)
+        self.status_label.setText("Applied session MIDI to the timeline")
+
+    def _apply_fallback_pop_sketch(self, bpm=120.0):
+        """Drums + bass + piano sketch so Play is audible without an LLM."""
+        bpm = float(bpm or 120)
+        specs = [
+            (
+                "Drums",
+                "drums",
+                [
+                    (36, 0.0, 0.5, 110), (36, 2.0, 0.5, 110),
+                    (36, 4.0, 0.5, 110), (36, 6.0, 0.5, 110),
+                    (38, 1.0, 0.4, 108), (38, 3.0, 0.4, 108),
+                    (38, 5.0, 0.4, 108), (38, 7.0, 0.4, 108),
+                    (42, 0.5, 0.25, 80), (42, 1.5, 0.25, 80),
+                    (42, 2.5, 0.25, 80), (42, 3.5, 0.25, 80),
+                    (42, 4.5, 0.25, 80), (42, 5.5, 0.25, 80),
+                    (42, 6.5, 0.25, 80), (42, 7.5, 0.25, 80),
+                ],
+            ),
+            (
+                "Bass",
+                "bass",
+                [
+                    (36, 0.0, 1.0, 100), (36, 1.0, 0.5, 90),
+                    (38, 2.0, 1.0, 100), (41, 4.0, 1.0, 100),
+                    (38, 6.0, 1.0, 100), (36, 7.0, 0.75, 95),
+                ],
+            ),
+            (
+                "Piano",
+                "piano",
+                [
+                    (60, 0.0, 2.0, 90), (64, 0.0, 2.0, 85), (67, 0.0, 2.0, 85),
+                    (65, 2.0, 2.0, 90), (69, 2.0, 2.0, 85), (72, 2.0, 2.0, 85),
+                    (60, 4.0, 2.0, 90), (64, 4.0, 2.0, 85), (67, 4.0, 2.0, 85),
+                    (62, 6.0, 2.0, 88), (65, 6.0, 2.0, 82), (69, 6.0, 2.0, 82),
+                ],
+            ),
+        ]
+        last_clip = None
+        for name, inst, notes in specs:
+            tid = self._ensure_named_track(name)
+            clip = MidiClip(name=name, track_id=tid, instrument=inst, bpm=bpm)
+            for pitch, start, dur, vel in notes:
+                clip.add_note(pitch, start, dur, vel)
+            clip.start_time = 0.0
+            self.midi_clips.append(clip)
+            if tid in self.timeline.tracks:
+                self.timeline.add_clip(tid, clip, 0.0)
+            last_clip = clip
+        if last_clip is not None:
+            self.piano_roll.set_clip(last_clip)
+        self.status_label.setText("Applied fallback pop sketch (drums, bass, piano)")
+
     # ===== Helper Methods =====
     
     def _check_save(self):
@@ -519,6 +824,7 @@ class MainWindow(QMainWindow):
     def _get_project_data(self):
         """Get current project data for saving"""
         return {
+            'version': '1.0',
             'timeline': self.timeline.get_state(),
             'tracks': self.track_panel.get_state(),
             'transport': self.transport.get_state()
@@ -532,6 +838,15 @@ class MainWindow(QMainWindow):
             self.track_panel.set_state(data['tracks'])
         if 'transport' in data:
             self.transport.set_state(data['transport'])
+        outputs = data.get('track_outputs')
+        self.audio_engine.clear()
+        for clip in self.timeline.clips.values():
+            self.audio_engine.load_audio(clip)
+        # clear() wipes in-session buses; restore unused buses even when
+        # track_outputs is empty so File>Open keeps the .daw buses list.
+        self.project_manager._apply_buses(self.audio_engine, data.get('buses'))
+        self.project_manager._apply_track_outputs(self.audio_engine, outputs)
+        self.track_panel.sync_outputs_from_engine(self.audio_engine)
             
     def _autosave(self):
         """Auto-save project"""
@@ -544,18 +859,27 @@ class MainWindow(QMainWindow):
             )
             try:
                 project_data = self._get_project_data()
-                self.project_manager.save_project(autosave_path, project_data)
+                self.project_manager.save_project(
+                    autosave_path, project_data, engine=self.audio_engine
+                )
                 self.status_label.setText("Auto-saved")
             except:
                 pass
                 
     def closeEvent(self, event):
         """Handle window close"""
-        if self._check_save():
-            self.audio_engine.stop()
-            event.accept()
-        else:
+        # Hidden/offscreen closes (pytest) must not block on the save dialog.
+        if self.isVisible() and not self._check_save():
             event.ignore()
+            return
+        self.audio_engine.stop()
+        manager = getattr(self, "agent_manager", None)
+        if manager is not None and hasattr(manager, "close"):
+            try:
+                manager.close()
+            except Exception:
+                pass
+        event.accept()
 
 
 def main():

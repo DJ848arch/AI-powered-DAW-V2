@@ -3,6 +3,8 @@ OpenJarvis Client Wrapper for ARIA DAW
 Wraps the OpenJarvis SDK to provide AI conversation capabilities with music production context.
 """
 
+from __future__ import annotations
+
 import os
 from typing import Optional, Dict, List, Any, Callable
 from dataclasses import dataclass
@@ -205,7 +207,7 @@ class JarvisWorker(QThread):
     response_ready = pyqtSignal(str, str)  # session_id, response
     error_occurred = pyqtSignal(str, str)  # session_id, error
     
-    def __init__(self, jarvis: Jarvis, session_id: str, query: str,
+    def __init__(self, jarvis: "Jarvis", session_id: str, query: str,
                  system_prompt: Optional[str] = None,
                  temperature: float = 0.7, max_tokens: int = 2000,
                  context_messages: Optional[List[Dict]] = None):

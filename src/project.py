@@ -48,6 +48,9 @@ class ProjectManager:
             },
             'tracks': {},
             'clips': {},
+            'midi_clips': {},
+            'track_outputs': {},
+            'buses': [],
             'settings': {
                 'sample_rate': 44100,
                 'bit_depth': 16,
@@ -57,47 +60,240 @@ class ProjectManager:
         
         self.current_project = project
         return project
+
+    def new_track(self, track_id, name="New Track", instrument="piano") -> Dict:
+        """Create a persisted track record. instrument is additive."""
+        return {
+            "id": track_id,
+            "name": name,
+            "instrument": instrument,
+            "clips": [],
+            "muted": False,
+            "solo": False,
+        }
+
+    def ensure_track_instrument(self, track: Dict, default: str = "piano") -> Dict:
+        """Set instrument on a track dict if missing (additive)."""
+        if "instrument" not in track:
+            track["instrument"] = default
+        return track
+
+    def _atomic_write_json(self, file_path, data):
+        """Write JSON atomically via a sibling temp file, then os.replace."""
+        parent = os.path.dirname(file_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+
+        tmp_path = file_path + ".tmp"
+        try:
+            with open(tmp_path, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+
+            os.replace(tmp_path, file_path)
+
+            # Durable directory entry on POSIX (best-effort).
+            dir_to_sync = parent if parent else "."
+            try:
+                flags = os.O_RDONLY
+                if hasattr(os, "O_DIRECTORY"):
+                    flags |= os.O_DIRECTORY
+                dir_fd = os.open(dir_to_sync, flags)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+            except OSError:
+                pass
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         
-    def save_project(self, file_path: str, project_data: Dict) -> bool:
-        """Save project to file"""
+    def _normalize_track_outputs(self, mapping) -> Dict:
+        """Normalize track_outputs for JSON: string keys, int or bus-name dests.
+
+        Missing/None/''/'master' dests are omitted — a missing key means master.
+        Int dests stay int. Other non-empty strings are kept as bus names
+        (e.g. "drum"). Numpy/int-like keys and dests are coerced to Python str/int.
+        """
+        if not mapping or not isinstance(mapping, dict):
+            return {}
+
+        out = {}
+        for key, dest in mapping.items():
+            try:
+                if isinstance(key, bool):
+                    continue
+                src_str = str(int(key))
+            except (TypeError, ValueError):
+                continue
+
+            if dest is None:
+                continue
+            if isinstance(dest, bool):
+                continue
+            if isinstance(dest, str):
+                stripped = dest.strip()
+                if stripped == "" or stripped.lower() == "master":
+                    continue
+                if stripped.lstrip("-").isdigit():
+                    out[src_str] = int(stripped)
+                else:
+                    out[src_str] = stripped
+            else:
+                try:
+                    dest_id = int(dest)
+                except (TypeError, ValueError):
+                    continue
+                out[src_str] = dest_id
+        return out
+
+    def _normalize_buses(self, names) -> List:
+        """Sorted unique non-empty bus names, excluding 'master' (case-insensitive)."""
+        if not names:
+            return []
+        if isinstance(names, str):
+            names = [names]
+        try:
+            items = list(names)
+        except TypeError:
+            return []
+
+        seen = set()
+        out = []
+        for name in items:
+            if not isinstance(name, str):
+                continue
+            stripped = name.strip()
+            if not stripped or stripped.lower() == "master":
+                continue
+            if stripped in seen:
+                continue
+            seen.add(stripped)
+            out.append(stripped)
+        return sorted(out)
+
+    def _collect_buses(self, engine) -> List:
+        """Normalized bus names from a live engine (or [])."""
+        if engine is None:
+            return []
+        try:
+            names = None
+            if hasattr(engine, "list_buses"):
+                names = engine.list_buses()
+            if not names and hasattr(engine, "get_buses"):
+                names = engine.get_buses()
+        except Exception:
+            return []
+        return self._normalize_buses(names)
+
+    def _apply_buses(self, engine, names):
+        """Register named buses on a live engine. Missing/None/empty → no buses."""
+        if engine is None:
+            return
+        if not names:
+            return
+        for name in self._normalize_buses(names):
+            try:
+                engine.add_bus(name)
+            except (ValueError, TypeError):
+                continue
+
+    def _collect_track_outputs(self, engine) -> Dict:
+        """Normalized track_outputs from a live engine (or {})."""
+        if engine is None:
+            return {}
+        try:
+            state = engine.get_state() or {}
+        except Exception:
+            return {}
+        return self._normalize_track_outputs(state.get("track_outputs") or {})
+
+    def _apply_track_outputs(self, engine, mapping):
+        """Restore buses from current_project, then reapply dests. Invalid dests skipped."""
+        if engine is None:
+            return
+        project = self.current_project or {}
+        self._apply_buses(engine, project.get("buses"))
+        normalized = self._normalize_track_outputs(mapping)
+        for src_str, dest in normalized.items():
+            try:
+                src = int(src_str)
+            except (TypeError, ValueError):
+                continue
+            try:
+                engine.set_track_output(src, dest)
+            except (ValueError, TypeError):
+                continue
+
+    def save_project(self, file_path: str, project_data: Dict, engine=None) -> bool:
+        """Save project to file. Optional engine overlays track_outputs and buses."""
         try:
             # Update metadata
             project_data['modified_at'] = datetime.now().isoformat()
-            
-            # Ensure directory exists
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            
-            # Save main project file
-            with open(file_path, 'w') as f:
-                json.dump(project_data, f, indent=2)
-                
-            # Save backup
-            self._create_backup(file_path)
-            
+
+            if engine is not None:
+                project_data['track_outputs'] = self._collect_track_outputs(engine)
+                project_data['buses'] = self._collect_buses(engine)
+            else:
+                if 'track_outputs' in project_data:
+                    project_data['track_outputs'] = self._normalize_track_outputs(
+                        project_data.get('track_outputs')
+                    )
+                if 'buses' in project_data:
+                    project_data['buses'] = self._normalize_buses(
+                        project_data.get('buses')
+                    )
+
+            # Backup the existing good file before replacing it
+            if os.path.exists(file_path):
+                self._create_backup(file_path)
+
+            self._atomic_write_json(file_path, project_data)
             return True
             
         except Exception as e:
             print(f"Error saving project: {e}")
             return False
             
-    def load_project(self, file_path: str) -> Dict:
-        """Load project from file"""
+    def load_project(self, file_path: str, engine=None) -> Dict:
+        """Load project from file. Optional engine restores track_outputs."""
         with open(file_path, 'r') as f:
             project = json.load(f)
-            
+
+        project = self.migrate_project(project)
+
+        if not self.validate_project(project):
+            raise ValueError(
+                "Invalid project file: missing required keys "
+                "(version, timeline, transport)"
+            )
+
         self.current_project = project
+
+        if engine is not None:
+            self._apply_buses(engine, project.get('buses'))
+            self._apply_track_outputs(engine, project.get('track_outputs') or {})
+
         return project
         
     def _create_backup(self, file_path: str):
         """Create a backup of the project"""
-        backup_dir = os.path.join(os.path.dirname(file_path), ".backups")
-        os.makedirs(backup_dir, exist_ok=True)
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_name = f"{os.path.basename(file_path)}.{timestamp}.bak"
-        backup_path = os.path.join(backup_dir, backup_name)
-        
+        if not os.path.exists(file_path):
+            return
+
         try:
+            backup_dir = os.path.join(os.path.dirname(file_path), ".backups")
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_name = f"{os.path.basename(file_path)}.{timestamp}.bak"
+            backup_path = os.path.join(backup_dir, backup_name)
+            
             shutil.copy2(file_path, backup_path)
             
             # Keep only last 10 backups
@@ -120,15 +316,12 @@ class ProjectManager:
             
         try:
             autosave_dir = os.path.join(os.path.dirname(file_path), self.AUTOSAVE_DIR)
-            os.makedirs(autosave_dir, exist_ok=True)
-            
             autosave_path = os.path.join(
                 autosave_dir,
                 f"{os.path.basename(file_path)}.autosave"
             )
-            
-            with open(autosave_path, 'w') as f:
-                json.dump(project_data, f, indent=2)
+
+            self._atomic_write_json(autosave_path, project_data)
                 
         except Exception as e:
             print(f"Error during autosave: {e}")

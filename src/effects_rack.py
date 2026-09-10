@@ -1,6 +1,12 @@
 """
 Audio Effects Rack UI
 Placeholder for audio effects processing
+
+On-channel insert DSP boundary (this slice): identity / dry.
+No VST, plugin hosting, or real EQ/reverb. AudioEngine calls
+apply_inserts(track_id, audio) after clips are summed on the track
+and before mute/solo/volume/pan and the split to main output +
+post-fader sends. Tests may install a fake insert via set_test_insert.
 """
 
 from PyQt6.QtWidgets import (
@@ -11,6 +17,65 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
+
+
+# Track_id -> callable(audio) -> audio. Test-only; not persisted.
+_TEST_INSERTS = {}
+
+
+def apply_inserts(track_id, audio):
+    """Apply on-channel inserts. Identity when the rack has no DSP.
+
+    Returns ``audio`` unchanged (dry) unless a test insert is installed
+    for this track. Does not process other tracks, buses, or master.
+    """
+    if audio is None:
+        return audio
+    try:
+        if isinstance(track_id, bool):
+            key = track_id
+        else:
+            key = int(track_id)
+    except (TypeError, ValueError):
+        key = track_id
+    fn = _TEST_INSERTS.get(key)
+    if fn is None:
+        return audio
+    out = fn(audio)
+    return audio if out is None else out
+
+
+def set_test_insert(track_id, fn=None, gain=None):
+    """Test-only: install a fake on-channel insert. Not a real effect.
+
+    ``fn`` is ``callable(audio) -> audio``. ``gain`` is a scalar multiply
+    (e.g. 0.5) used to characterize mix order. Pass neither to clear
+    the insert on this track.
+    """
+    try:
+        if isinstance(track_id, bool):
+            key = track_id
+        else:
+            key = int(track_id)
+    except (TypeError, ValueError):
+        key = track_id
+    if fn is None and gain is not None:
+        g = float(gain)
+
+        def fn(audio, _g=g):
+            if audio is None:
+                return audio
+            return audio * _g
+
+    if fn is None:
+        _TEST_INSERTS.pop(key, None)
+        return
+    _TEST_INSERTS[key] = fn
+
+
+def clear_test_inserts():
+    """Remove all test inserts (test isolation)."""
+    _TEST_INSERTS.clear()
 
 
 class EffectsRack(QWidget):
