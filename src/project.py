@@ -59,7 +59,14 @@ class ProjectManager:
             'buses': [],
             'track_sends': {},
             'track_send_levels': {},
+            'track_send_modes': {},
             'inserts': {},
+            'bus_outputs': {},
+            'bus_volumes': {},
+            'bus_pans': {},
+            'bus_sends': {},
+            'bus_send_levels': {},
+            'bus_send_modes': {},
             'settings': {
                 'sample_rate': 44100,
                 'bit_depth': 16,
@@ -324,21 +331,33 @@ class ProjectManager:
                 out[src_str] = kept
         return out
 
-    def _normalize_inserts(self, mapping) -> Dict:
-        """JSON insert slots: string keys, list of dicts. Empty = identity.
+    def _channel_key(self, key):
+        """Track id as decimal string, or bus name. None if invalid."""
+        if isinstance(key, bool):
+            return None
+        if isinstance(key, str):
+            stripped = key.strip()
+            if not stripped or stripped.lower() == "master":
+                return None
+            if stripped.lstrip("-").isdigit():
+                return str(int(stripped))
+            return stripped
+        try:
+            return str(int(key))
+        except (TypeError, ValueError):
+            return None
 
-        Slots are schema only (no DSP this slice). Unknown dict keys kept.
-        Non-dict items are dropped.
+    def _normalize_inserts(self, mapping) -> Dict:
+        """JSON insert slots: string keys (track id or bus name), list of dicts.
+
+        Empty list = identity / dry. Unknown dict keys kept. Non-dict items dropped.
         """
         if not mapping or not isinstance(mapping, dict):
             return {}
         out = {}
         for key, slots in mapping.items():
-            try:
-                if isinstance(key, bool):
-                    continue
-                src_str = str(int(key))
-            except (TypeError, ValueError):
+            src_str = self._channel_key(key)
+            if src_str is None:
                 continue
             if slots is None:
                 out[src_str] = []
@@ -349,13 +368,135 @@ class ProjectManager:
             out[src_str] = kept
         return out
 
-    def _collect_sends(self, engine) -> Tuple[Dict, Dict]:
-        """Normalized track_sends + track_send_levels from a live engine."""
+    def _normalize_send_mode(self, mode):
+        if mode is None:
+            return "post"
+        if not isinstance(mode, str):
+            return None
+        stripped = mode.strip().lower()
+        if stripped in ("pre", "pre-fader", "prefader"):
+            return "pre"
+        if stripped in ("post", "post-fader", "postfader", ""):
+            return "post"
+        return None
+
+    def _normalize_send_modes(self, mapping) -> Dict:
+        """JSON send modes: string source keys, dest-key → pre|post."""
+        if not mapping or not isinstance(mapping, dict):
+            return {}
+        out = {}
+        for key, modes in mapping.items():
+            src_str = self._channel_key(key)
+            if src_str is None or not modes or not isinstance(modes, dict):
+                continue
+            kept = {}
+            for dest_key, raw in modes.items():
+                dest_norm = self._normalize_send_dest(dest_key)
+                mode = self._normalize_send_mode(raw)
+                if dest_norm is None or mode is None:
+                    continue
+                kept[str(dest_norm)] = mode
+            if kept:
+                out[src_str] = kept
+        return out
+
+    def _normalize_bus_float_map(self, mapping, lo, hi, default=None) -> Dict:
+        if not mapping or not isinstance(mapping, dict):
+            return {}
+        out = {}
+        for key, raw in mapping.items():
+            if not isinstance(key, str):
+                continue
+            name = key.strip()
+            if not name or name.lower() == "master":
+                continue
+            if isinstance(raw, bool):
+                continue
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(value):
+                continue
+            out[name] = max(lo, min(hi, value))
+        return out
+
+    def _normalize_bus_outputs(self, mapping) -> Dict:
+        """Bus dests: missing/master omitted. Int track or bus name."""
+        if not mapping or not isinstance(mapping, dict):
+            return {}
+        out = {}
+        for key, dest in mapping.items():
+            if not isinstance(key, str):
+                continue
+            name = key.strip()
+            if not name or name.lower() == "master":
+                continue
+            dest_norm = self._normalize_send_dest(dest)
+            if dest_norm is None or dest_norm == name:
+                continue
+            out[name] = dest_norm
+        return out
+
+    def _normalize_named_sends(self, mapping) -> Dict:
+        """Sends keyed by bus name (not track id)."""
+        if not mapping or not isinstance(mapping, dict):
+            return {}
+        out = {}
+        for key, dests in mapping.items():
+            if not isinstance(key, str):
+                continue
+            name = key.strip()
+            if not name or name.lower() == "master":
+                continue
+            if dests is None or isinstance(dests, dict):
+                continue
+            if isinstance(dests, (str, bytes)) or not hasattr(dests, "__iter__"):
+                dests = [dests]
+            seen = set()
+            kept = []
+            for dest in dests:
+                dest_norm = self._normalize_send_dest(dest)
+                if dest_norm is None or dest_norm == name:
+                    continue
+                marker = ("t", dest_norm) if isinstance(dest_norm, int) else ("b", dest_norm)
+                if marker in seen:
+                    continue
+                seen.add(marker)
+                kept.append(dest_norm)
+            if kept:
+                out[name] = kept
+        return out
+
+    def _normalize_named_levels(self, mapping) -> Dict:
+        if not mapping or not isinstance(mapping, dict):
+            return {}
+        out = {}
+        for key, levels in mapping.items():
+            if not isinstance(key, str):
+                continue
+            name = key.strip()
+            if not name or name.lower() == "master" or not isinstance(levels, dict):
+                continue
+            kept = {}
+            for dest_key, raw in levels.items():
+                dest_norm = self._normalize_send_dest(dest_key)
+                gain = self._normalize_send_level(raw)
+                if dest_norm is None or gain is None:
+                    continue
+                kept[str(dest_norm)] = gain
+            if kept:
+                out[name] = kept
+        return out
+
+    def _collect_sends(self, engine) -> Tuple[Dict, Dict, Dict]:
+        """Normalized track_sends + levels + modes from a live engine."""
         if engine is None:
-            return {}, {}
+            return {}, {}, {}
         raw = getattr(engine, "track_sends", None) or {}
         sends = {}
         levels = {}
+        modes = {}
         for key, dests in raw.items():
             try:
                 if isinstance(key, bool):
@@ -371,6 +512,7 @@ class ProjectManager:
                     dests = dests
             kept = []
             kept_levels = {}
+            kept_modes = {}
             for dest in dests or []:
                 dest_norm = self._normalize_send_dest(dest)
                 if dest_norm is None or dest_norm == src:
@@ -384,13 +526,129 @@ class ProjectManager:
                         gain = 1.0
                 norm_gain = self._normalize_send_level(gain)
                 kept_levels[str(dest_norm)] = 1.0 if norm_gain is None else norm_gain
+                mode = "post"
+                if hasattr(engine, "get_send_mode"):
+                    try:
+                        mode = engine.get_send_mode(src, dest_norm)
+                    except (ValueError, TypeError):
+                        mode = "post"
+                norm_mode = self._normalize_send_mode(mode)
+                if norm_mode:
+                    kept_modes[str(dest_norm)] = norm_mode
             if kept:
                 sends[src_str] = kept
                 levels[src_str] = kept_levels
+                if kept_modes:
+                    modes[src_str] = kept_modes
         return (
             self._normalize_track_sends(sends),
             self._normalize_track_send_levels(levels),
+            self._normalize_send_modes(modes),
         )
+
+    def _collect_inserts(self, engine) -> Dict:
+        if engine is None:
+            return {}
+        raw = getattr(engine, "channel_inserts", None) or {}
+        out = {}
+        for key, slots in raw.items():
+            src_str = self._channel_key(key)
+            if src_str is None:
+                continue
+            if hasattr(engine, "get_inserts"):
+                try:
+                    slots = engine.get_inserts(key)
+                except Exception:
+                    slots = slots
+            out[src_str] = [dict(s) for s in (slots or []) if isinstance(s, dict)]
+        return self._normalize_inserts(out)
+
+    def _collect_bus_mixer(self, engine) -> Dict:
+        """Additive bus-channel fields from a live engine."""
+        empty = {
+            "bus_outputs": {},
+            "bus_volumes": {},
+            "bus_pans": {},
+            "bus_sends": {},
+            "bus_send_levels": {},
+            "bus_send_modes": {},
+        }
+        if engine is None:
+            return empty
+        names = []
+        try:
+            names = list(engine.list_buses()) if hasattr(engine, "list_buses") else []
+        except Exception:
+            names = []
+        outputs = {}
+        volumes = {}
+        pans = {}
+        sends = {}
+        levels = {}
+        modes = {}
+        for name in names:
+            if hasattr(engine, "get_bus_output"):
+                try:
+                    dest = engine.get_bus_output(name)
+                except Exception:
+                    dest = "master"
+                dest_norm = self._normalize_send_dest(dest)
+                if dest_norm is not None:
+                    outputs[name] = dest_norm
+            if hasattr(engine, "get_bus_volume"):
+                try:
+                    volumes[name] = float(engine.get_bus_volume(name))
+                except Exception:
+                    pass
+            if hasattr(engine, "get_bus_pan"):
+                try:
+                    pans[name] = float(engine.get_bus_pan(name))
+                except Exception:
+                    pass
+            dests = []
+            if hasattr(engine, "get_sends"):
+                try:
+                    dests = engine.get_sends(name)
+                except Exception:
+                    dests = list((getattr(engine, "bus_sends", {}) or {}).get(name) or [])
+            kept = []
+            kept_levels = {}
+            kept_modes = {}
+            for dest in dests or []:
+                dest_norm = self._normalize_send_dest(dest)
+                if dest_norm is None or dest_norm == name:
+                    continue
+                kept.append(dest_norm)
+                gain = 1.0
+                if hasattr(engine, "get_send_level"):
+                    try:
+                        gain = float(engine.get_send_level(name, dest_norm))
+                    except (ValueError, TypeError):
+                        gain = 1.0
+                norm_gain = self._normalize_send_level(gain)
+                kept_levels[str(dest_norm)] = 1.0 if norm_gain is None else norm_gain
+                mode = "post"
+                if hasattr(engine, "get_send_mode"):
+                    try:
+                        mode = engine.get_send_mode(name, dest_norm)
+                    except (ValueError, TypeError):
+                        mode = "post"
+                norm_mode = self._normalize_send_mode(mode)
+                if norm_mode:
+                    kept_modes[str(dest_norm)] = norm_mode
+            if kept:
+                sends[name] = kept
+                levels[name] = kept_levels
+                if kept_modes:
+                    modes[name] = kept_modes
+        return {
+            "bus_outputs": self._normalize_bus_outputs(outputs),
+            "bus_volumes": self._normalize_bus_float_map(volumes, 0.0, 1.0),
+            "bus_pans": self._normalize_bus_float_map(pans, -1.0, 1.0),
+            "bus_sends": self._normalize_named_sends(sends),
+            "bus_send_levels": self._normalize_named_levels(levels),
+            "bus_send_modes": self._normalize_send_modes(modes),
+        }
 
     def _ensure_engine_track_live(self, engine, track_id: int):
         """Make a dest track live via public mixer state (no new engine API)."""
@@ -405,7 +663,7 @@ class ProjectManager:
         except Exception:
             pass
 
-    def _apply_sends(self, engine, sends=None, levels=None):
+    def _apply_sends(self, engine, sends=None, levels=None, modes=None):
         """Restore extra sends after buses. Invalid dests skipped.
 
         Track dests are made live with the dest's existing volume (default 1.0)
@@ -419,20 +677,93 @@ class ProjectManager:
             sends = project.get("track_sends")
         if levels is None:
             levels = project.get("track_send_levels")
+        if modes is None:
+            modes = project.get("track_send_modes")
         normalized = self._normalize_track_sends(sends)
         level_map = self._normalize_track_send_levels(levels)
+        mode_map = self._normalize_send_modes(modes)
         for src_str, dests in normalized.items():
             try:
                 src = int(src_str)
             except (TypeError, ValueError):
                 continue
             src_levels = level_map.get(src_str) or {}
+            src_modes = mode_map.get(src_str) or {}
             for dest in dests:
                 if isinstance(dest, int):
                     self._ensure_engine_track_live(engine, dest)
                 gain = src_levels.get(str(dest), 1.0)
+                mode = src_modes.get(str(dest), "post")
                 try:
-                    engine.add_send(src, dest, gain)
+                    engine.add_send(src, dest, gain, mode=mode)
+                except TypeError:
+                    try:
+                        engine.add_send(src, dest, gain)
+                    except (ValueError, TypeError):
+                        continue
+                except (ValueError, TypeError):
+                    continue
+
+    def _apply_inserts(self, engine, inserts=None):
+        if engine is None or not hasattr(engine, "set_inserts"):
+            return
+        project = self.current_project or {}
+        self._apply_buses(engine, project.get("buses"))
+        if inserts is None:
+            inserts = project.get("inserts")
+        for key, slots in self._normalize_inserts(inserts).items():
+            channel = int(key) if key.lstrip("-").isdigit() else key
+            try:
+                engine.set_inserts(channel, slots)
+            except (ValueError, TypeError):
+                continue
+
+    def _apply_bus_mixer(self, engine, project=None):
+        if engine is None:
+            return
+        project = project or self.current_project or {}
+        self._apply_buses(engine, project.get("buses"))
+        for name, dest in self._normalize_bus_outputs(project.get("bus_outputs")).items():
+            if isinstance(dest, int):
+                self._ensure_engine_track_live(engine, dest)
+            if hasattr(engine, "set_bus_output"):
+                try:
+                    engine.set_bus_output(name, dest)
+                except (ValueError, TypeError):
+                    continue
+        for name, vol in self._normalize_bus_float_map(
+            project.get("bus_volumes"), 0.0, 1.0
+        ).items():
+            if hasattr(engine, "set_bus_volume"):
+                try:
+                    engine.set_bus_volume(name, vol)
+                except (ValueError, TypeError):
+                    continue
+        for name, pan in self._normalize_bus_float_map(
+            project.get("bus_pans"), -1.0, 1.0
+        ).items():
+            if hasattr(engine, "set_bus_pan"):
+                try:
+                    engine.set_bus_pan(name, pan)
+                except (ValueError, TypeError):
+                    continue
+        level_map = self._normalize_named_levels(project.get("bus_send_levels"))
+        mode_map = self._normalize_send_modes(project.get("bus_send_modes"))
+        for name, dests in self._normalize_named_sends(project.get("bus_sends")).items():
+            src_levels = level_map.get(name) or {}
+            src_modes = mode_map.get(name) or {}
+            for dest in dests:
+                if isinstance(dest, int):
+                    self._ensure_engine_track_live(engine, dest)
+                gain = src_levels.get(str(dest), 1.0)
+                mode = src_modes.get(str(dest), "post")
+                try:
+                    engine.add_send(name, dest, gain, mode=mode)
+                except TypeError:
+                    try:
+                        engine.add_send(name, dest, gain)
+                    except (ValueError, TypeError):
+                        continue
                 except (ValueError, TypeError):
                     continue
 
@@ -452,7 +783,28 @@ class ProjectManager:
         project_data["track_send_levels"] = self._normalize_track_send_levels(
             project_data.get("track_send_levels")
         )
+        project_data["track_send_modes"] = self._normalize_send_modes(
+            project_data.get("track_send_modes")
+        )
         project_data["inserts"] = self._normalize_inserts(project_data.get("inserts"))
+        project_data["bus_outputs"] = self._normalize_bus_outputs(
+            project_data.get("bus_outputs")
+        )
+        project_data["bus_volumes"] = self._normalize_bus_float_map(
+            project_data.get("bus_volumes"), 0.0, 1.0
+        )
+        project_data["bus_pans"] = self._normalize_bus_float_map(
+            project_data.get("bus_pans"), -1.0, 1.0
+        )
+        project_data["bus_sends"] = self._normalize_named_sends(
+            project_data.get("bus_sends")
+        )
+        project_data["bus_send_levels"] = self._normalize_named_levels(
+            project_data.get("bus_send_levels")
+        )
+        project_data["bus_send_modes"] = self._normalize_send_modes(
+            project_data.get("bus_send_modes")
+        )
         return project_data
 
     def save_project(self, file_path: str, project_data: Dict, engine=None) -> bool:
@@ -468,9 +820,16 @@ class ProjectManager:
             if engine is not None:
                 project_data['track_outputs'] = self._collect_track_outputs(engine)
                 project_data['buses'] = self._collect_buses(engine)
-                sends, levels = self._collect_sends(engine)
+                sends, levels, modes = self._collect_sends(engine)
                 project_data['track_sends'] = sends
                 project_data['track_send_levels'] = levels
+                project_data['track_send_modes'] = modes
+                engine_inserts = self._collect_inserts(engine)
+                prior_inserts = self._normalize_inserts(project_data.get("inserts"))
+                merged = dict(prior_inserts)
+                merged.update(engine_inserts)
+                project_data['inserts'] = merged
+                project_data.update(self._collect_bus_mixer(engine))
             self.canonicalize_project(project_data)
 
             # Backup the existing good file before replacing it
@@ -502,11 +861,14 @@ class ProjectManager:
 
         if engine is not None:
             self._apply_buses(engine, project.get('buses'))
+            self._apply_bus_mixer(engine, project)
             self._apply_track_outputs(engine, project.get('track_outputs') or {})
+            self._apply_inserts(engine, project.get('inserts'))
             self._apply_sends(
                 engine,
                 project.get('track_sends'),
                 project.get('track_send_levels'),
+                project.get('track_send_modes'),
             )
 
         return project
@@ -652,6 +1014,13 @@ class ProjectManager:
             project_data.setdefault('buses', [])
             project_data.setdefault('track_sends', {})
             project_data.setdefault('track_send_levels', {})
+            project_data.setdefault('track_send_modes', {})
             project_data.setdefault('inserts', {})
+            project_data.setdefault('bus_outputs', {})
+            project_data.setdefault('bus_volumes', {})
+            project_data.setdefault('bus_pans', {})
+            project_data.setdefault('bus_sends', {})
+            project_data.setdefault('bus_send_levels', {})
+            project_data.setdefault('bus_send_modes', {})
 
         return project_data
