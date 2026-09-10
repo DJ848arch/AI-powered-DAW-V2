@@ -5,18 +5,24 @@ ClickUp = plan (workspace `90141241740`, Team Space `90145572472`, existing ARIA
 Notion = development journal.
 Google Calendar = daily increment (America/Boise, availability FREE).
 
-**CURRENTLY APPROVED:** Milestone 2 first three only (schema audit + unified `.daw` 1.1 + M1-compat load/save + round-trip tests). M1 Routing Core is complete. See `SCHEMA.md`.
+**CURRENTLY APPROVED / EXECUTABLE:** Milestone 2 — Real Audio Graph + Schema Unification (only).
 
-**NOT APPROVED** (planning items only, do not execute): FluidSynth, unifying `.daw` vs C++ `SongDocument`, blank C++ Edit, OpenJarvis, JUCE, new AI systems/roles, real insert DSP / send-audio / bus-mixer / metering (later M2 slices).
+**M1 Routing Core:** APPROVED 2026-09-09 evening; CLOSED for execution.
+
+**M2 first three (DONE 2026-09-09):** schema audit + authoritative model (`SCHEMA.md`), `.daw` 1.1 migrate with M1 compat, M1 regression + schema round-trip tests. Merged PR #1 → `main` @ `eb54f37`. Pytest 139 passed.
+
+**HOLD forever until Daniel says otherwise:** FluidSynth, JUCE, OpenJarvis, blank C++ Edit, unrelated AI.
+
+**NOT APPROVED** (planning items only, do not execute): unifying Python `.daw` with C++ `SongDocument`, new AI systems/roles. Later M2 slices (real inserts/sends/bus DSP/metering/safe rebuilds/audio-backed QA) need the next green-light batch — do not freestyle the whole milestone.
 
 Two project formats exist (**document, do not unify** unless Daniel explicitly approves):
 
 | Format | Location | Schema | Role today |
 |--------|----------|--------|------------|
-| Python `.daw` | `src/project.py` + `SCHEMA.md` | `version: "1.1"` (M1 files are `1.0`, migrated on load) | Running UI/session format. JSON. Tracks, clips, `midi_clips`, timeline, transport, routing graph, crash-safe atomic save. |
+| Python `.daw` | `src/project.py` + `SCHEMA.md` | `version: "1.1"` (M1 `1.0` migrates on load) | Running UI/session format. JSON. Tracks, clips, `midi_clips`, timeline, transport, routing graph, crash-safe atomic save. |
 | C++ `SongDocument` | `aria-cpp/resources/schemas/song_schema.json` | `schemaVersion: "1.0.0"` | MIDI-only document for the JUCE/Tracktion target. Separate from `.daw`. JUCE on hold. |
 
-GitHub `https://github.com/DJ848arch/AI-powered-DAW-V2` `main` has M1 Routing Core (`49cb12a`). M2 schema work proceeds from that.
+GitHub `https://github.com/DJ848arch/AI-powered-DAW-V2` `main` is current (`eb54f37`). Local `/workspace/aria` stays the working tree.
 
 ClickUp import landed 2026-08-28: folder **AI-Powered DAW** `901412060516`, list **M1 Routing — APPROVED** `901419670127`, list **Roadmap — planning only** `901419670128`. Existing ARIA list `901419614214` / task `86bbngfza` remains the approved-goal pointer (retitled). Do not treat future milestones as authorization to execute them.
 
@@ -28,8 +34,8 @@ ClickUp folder (created 2026-08-28): **AI-Powered DAW** `901412060516` in space 
 
 Lists:
 
-1. **M1 Routing** — APPROVED (daily batches live here until M1 completion review + Daniel’s approval).
-2. **Roadmap** — planning only (M2–M20 as milestone tasks, **not** daily batches until approved).
+1. **M1 Routing** — APPROVED / CLOSED for execution (Daniel approved 2026-09-09 evening).
+2. **Roadmap** — M2 is EXECUTABLE; M3–M20 remain planning only (milestone tasks, **not** daily batches until approved).
 
 Existing list `901419614214` (ARIA) remains the approved-goal source until the new folder/lists exist. After import, M1 work tasks live in **M1 Routing**; M2–M20 stay in **Roadmap** as planning shells.
 
@@ -96,7 +102,7 @@ Roster seated for executable work: Inspector (read-only map), Core (project stat
 
 ## Milestone 1 — Routing Core (APPROVED)
 
-**Status:** Completion report submitted 2026-09-02. Awaiting Daniel’s approval. **STOP. Do not start M2.** Still the only approved milestone until he says otherwise.
+**Status:** APPROVED / CLOSED for execution (Daniel approved 2026-09-09 evening). GitHub `main` at `49cb12a`. M2 is now the only EXECUTABLE milestone.
 **ClickUp:** list **M1 Routing**. Existing task id `86bbngfza` is the approved routing goal (retitle on import if still generic).
 
 ### Objective
@@ -244,65 +250,60 @@ Import note: create one ClickUp task per bullet above. Put the 2026-08-27 three 
 
 ---
 
-## Milestones 2–20 — PLANNING ONLY
+## Milestones 2–20
 
-Do not execute. Do not create daily batches until Daniel approves the milestone and M1 (then each predecessor) has a completion report. Seated roles remain Inspector / Core / Engine / UI / QA. JUCE and new AI roles stay on hold. ClickUp: one milestone task per section in list **Roadmap**, tag `PLANNING-ONLY`. Sub-bullets become subtasks on approval, then the morning loop picks 3 from remaining.
+**M2 is EXECUTABLE** (approved 2026-09-09 evening). **M3–M20 remain PLANNING ONLY** — do not execute; do not create daily batches until Daniel approves that milestone and its predecessor has a completion report. Seated roles remain Inspector / Core / Engine / UI / QA. HOLD forever until Daniel says otherwise: FluidSynth, JUCE, OpenJarvis, blank C++ Edit, unrelated AI. ClickUp: M2 daily batches under the approved milestone path; M3–M20 stay planning shells tagged `PLANNING-ONLY` until approved. Sub-bullets become subtasks on approval, then the morning loop picks 3 from remaining.
 
 ---
 
-## Milestone 2 — Project/session reliability
+## Milestone 2 — Real Audio Graph + Schema Unification
 
-**Status:** APPROVED first three only (2026-09-09). Schema 1.1 + migrate + tests in `SCHEMA.md`. Later M2 graph/audio slices still queued.
-**Name:** Project/session reliability.
+**Name:** Real Audio Graph + Schema Unification
+**Status:** EXECUTABLE (approved 2026-09-09 evening)
 
 ### Objective
 
-Make projects reliably save, load, recover, and reproduce the user’s session in the running Python `.daw` format.
+Turn existing routing into a real, persistent, audio-backed DAW signal graph while consolidating project/session state into one authoritative schema.
+
+### Scope (seven pieces — keep all)
+
+1. **Schema Unification** — one authoritative representation for tracks, buses, routing, sends, inserts, IDs, persisted session state; eliminate/migrate duplicates; backward compat with existing `.daw` where practical; do not silently break M1.
+2. **Real Insert Processing** — replace identity-only inserts with ordered processing chain; deterministic flow; inserts in engine graph not metadata-only.
+3. **Real Sends** — send levels affect actual audio; multiple sends per source; pre/post-fader; persist/restore.
+4. **Bus Processing** — named buses as real mixer channels (gain/fader, pan, inserts, sends/routing, onward to Master/valid dest); keep cycle/invalid rejection.
+5. **Engine Metering** — real level/meter data from engine for tracks/buses/Master; UI consumes engine state.
+6. **Safe Graph Rebuilds** — add/delete/reroute/modify while stopped rebuilds safely; no stale refs/dupes/invalid dests/corruption/crashes.
+7. **Audio-Backed QA** — feed known/test signals; verify paths and gain/output; keep M1 suite green.
 
 ### Definition of done
 
-Open/save/reopen reproduces tracks, clips, MIDI, mixer, timeline, routing (from M1), and supported effect state. Crash recovery and autosave are proven. Missing files, migration, and corruption fail safely. Dual formats remain documented.
+Project with multiple tracks, named buses, inserts, sends, send levels, multi-stage routing; save `.daw`; close; reopen; play back with same routing/processing/levels/audible result without manual repair. Cycles/invalid still rejected. M1 tests green + new M2 audio tests.
 
-### Dependencies
+### Execution rules
 
-- M1 complete and approved (routing persist/restore is an M1 deliverable; M2 must not regress it).
-- Existing crash-safe save in `src/project.py` (atomic `.tmp` + `os.replace` + backup-before-replace + load migrate-then-validate). Schema still Python `1.0`.
+Incremental; no broad rewrite unless architecture makes a requirement impossible; engine authoritative; commit logical slices separately; no scope creep; if architectural decision would materially change M1 design or create new dependency/engine direction, **STOP** and report before implementing. When DoD met: **STOP** at approval gate; write `M2-COMPLETION-REPORT.md` with summary, architecture changes, migrations, test results, limitations, exact commit SHA. Do not begin M3 automatically.
 
-### Responsible seated roles
+### HOLD
 
-Core (serialization, migration, autosave, corruption handling); Engine (mixer/routing/MIDI state that must round-trip); UI (save/load/autosave entry points, missing-file dialogs); QA (round-trip and recovery tests); Inspector (document dual formats, read-only).
+FluidSynth, JUCE, OpenJarvis, blank C++ Edit, unrelated AI.
 
-### Risks
+### Owners
 
-- Quiet unify of Python `.daw` schema 1.0 with C++ `SongDocument` schema 1.0.0 — **forbidden unless approved**.
-- Autosave calling `save_project` and rotating backups as if they were user saves.
-- Missing-media paths that rewrite the project on load.
-- Migration that drops unknown keys.
+| Area | Owner |
+|------|--------|
+| Schema / persist | **Core** |
+| Graph / inserts / sends / buses / meters | **Engine** |
+| Consume engine meters / routing only as needed | **UI** |
+| M1 regression + audio-backed tests | **QA** |
+| Read-only map | **Inspector** |
 
-### Required tests
+CoS does not fan the whole ARIA Engineering room for each batch.
 
-Round-trip of a realistic session (tracks, audio clip refs, MIDI clips, mixer, routes). Crash mid-write preserves the previous good `.daw` (already covered in `tests/test_project.py` — do not invent additional counts). Autosave writes valid JSON without replacing the user file. Missing required keys still raise. Missing audio files are reported, not silently dropped. Record actual QA counts when the milestone runs.
+### First executable daily batch (M2 backlog)
 
-### Completion gate
-
-QA confirms save → close → reopen session integrity, recovery, and that **both formats still exist and are documented**. Completion report. Stop for approval.
-
-### Task inventory
-
-- Document dual formats in-repo (Python `.daw` 1.0 vs C++ `SongDocument` 1.0.0): owners, on-disk location, what each serializes, what is out of scope. **Do not unify.**
-- Complete project serialization inventory (what `save_project` actually writes vs live UI/engine state).
-- Track state persistence (name, mute, solo, volume, pan, instrument, routing key from M1).
-- Confirm routing persistence still round-trips after M2 changes (regression of M1).
-- MIDI state persistence (`midi_clips` / `MidiClip.to_dict`).
-- Mixer state persistence.
-- Timeline state (zoom, clips placement, bpm).
-- Plugin/effect state when supported (placeholder rack only unless a later approved milestone added real inserts).
-- Crash recovery validation (backup + atomic write; reopen last good file).
-- Autosave behavior (`ProjectManager.autosave` vs UI calling `save_project`).
-- Missing-file handling (audio refs that do not exist).
-- Project migration/version handling (`migrate_project` is currently a stub for `1.0`).
-- Corruption/error handling (invalid JSON, missing keys — already raises; keep that).
-- Regression tests for save/load (existing `tests/test_project.py` plus session-level round-trip). Do not invent counts.
+1. Schema audit + authoritative unified model for tracks/buses/routing/sends/inserts/IDs (Core; Inspector map if needed)
+2. `.daw` load/save migration onto unified schema with M1 backward compat (Core)
+3. M1 regression lock + schema round-trip tests (QA)
 
 ---
 
@@ -310,6 +311,8 @@ QA confirms save → close → reopen session integrity, recovery, and that **bo
 
 **Status:** PLANNING ONLY.
 **Name:** Mixer.
+
+> **Numbering caveat:** After M2 Real Audio Graph + Schema Unification absorbs mixer/bus/send/meter work, this milestone’s numbering and content may shift. Do **not** execute old M3 as “next after this M2” until renumbered.
 
 ### Objective
 
@@ -1276,7 +1279,7 @@ QA independent confirm of all 15 points. Completion report to Daniel. Version id
 Weekdays **9:00 America/Chicago**.
 
 1. **Read context** — ClickUp current milestone + incomplete tasks; Notion yesterday; QA results; unresolved blockers; **actual local repo** `/workspace/aria`. Never rely only on an old roadmap if implementation changed.
-2. **Choose 3** from the **CURRENT approved milestone only** (today: M1). Build on completed work. Independently testable. No future-milestone pull if today’s batch finishes early.
+2. **Choose 3** from the **CURRENT approved milestone only** (today: M2 — Real Audio Graph + Schema Unification). Build on completed work. Independently testable. No future-milestone pull if today’s batch finishes early.
 3. **Plan ClickUp daily batch** — parent “Daily Batch — [date]” under the approved milestone; each task has objective, files/modules, acceptance criteria, required tests, owner, status (`BACKLOG` / `TODAY` / `IN PROGRESS` / `QA` / `BLOCKED` / `DONE`). Until ClickUp write is available (~2026-08-28 07:00 America/Chicago), this file is the plan.
 4. **Calendar** — one event, title `AI DAW — [Milestone] — Daily Increment`, America/Boise, availability FREE. Description lists TASK 1/2/3, current milestone, today’s objective, ClickUp refs when they exist.
 5. **Assign** Engine / Core / UI / QA (Inspector if a map is needed). Do not seat JUCE or new AI roles. Do not expand scope without approval.
