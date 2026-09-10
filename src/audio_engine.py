@@ -21,8 +21,13 @@ import numpy as np
 
 try:
     from effects_rack import apply_inserts as _effects_apply_inserts
+    from effects_rack import apply_insert_chain as _effects_apply_insert_chain
 except Exception:
     def _effects_apply_inserts(track_id, audio):
+        """Identity fallback when the effects rack is unavailable."""
+        return audio
+
+    def _effects_apply_insert_chain(audio, slots):
         """Identity fallback when the effects rack is unavailable."""
         return audio
 
@@ -313,8 +318,24 @@ class AudioEngine(QObject):
         self._buses = set()      # named mix buses; persisted by ProjectManager
         self.track_sends = {}    # track_id: list of extra dests (bus name or live track id)
         self.track_send_levels = {}  # track_id: {dest: finite non-negative gain}; default 1.0
+        self.track_send_modes = {}   # track_id: {dest: "pre"|"post"}; default "post"
+        # Ordered insert slots: int track id or bus name → list of dicts. [] = dry.
+        self.channel_inserts = {}
+        # Bus mixer (defaults: vol 1.0, pan 0.0, dest master)
+        self.bus_volumes = {}
+        self.bus_pans = {}
+        self.bus_outputs = {}
+        self.bus_sends = {}
+        self.bus_send_levels = {}
+        self.bus_send_modes = {}
         # Optional test hook: callable(track_id, audio) -> audio. None = use rack apply_inserts.
         self._insert_processor = None
+        # Last-mix peak/rms. Engine data only — no mixer UI this slice.
+        self._meters = {
+            "tracks": {},
+            "buses": {},
+            "master": {"peak": 0.0, "rms": 0.0},
+        }
 
         # Audio stream
         self.stream = None
@@ -449,6 +470,8 @@ class AudioEngine(QObject):
             del self.track_outputs[track_id]
         self.track_sends.pop(track_id, None)
         self.track_send_levels.pop(track_id, None)
+        self.track_send_modes.pop(track_id, None)
+        self.channel_inserts.pop(track_id, None)
         for src, dests in list(self.track_sends.items()):
             kept = [d for d in dests if d != track_id]
             if kept:
@@ -460,6 +483,11 @@ class AudioEngine(QObject):
                 levels.pop(track_id, None)
                 if not levels:
                     self.track_send_levels.pop(src, None)
+            modes = self.track_send_modes.get(src)
+            if modes is not None:
+                modes.pop(track_id, None)
+                if not modes:
+                    self.track_send_modes.pop(src, None)
         self._rebuild_track_buffers()
 
     def clear(self):
@@ -472,6 +500,15 @@ class AudioEngine(QObject):
         self._buses = set()
         self.track_sends = {}
         self.track_send_levels = {}
+        self.track_send_modes = {}
+        self.channel_inserts = {}
+        self.bus_volumes = {}
+        self.bus_pans = {}
+        self.bus_outputs = {}
+        self.bus_sends = {}
+        self.bus_send_levels = {}
+        self.bus_send_modes = {}
+        self._reset_meters()
 
     # ------------------------------------------------------------------
     # Transport
@@ -901,25 +938,57 @@ class AudioEngine(QObject):
             segment = apply_pan(segment, pan)
         return segment
 
-    def _apply_inserts(self, track_id, audio):
-        """On-channel insert hook (identity/dry when the rack has no DSP).
+    def _apply_inserts(self, channel_id, audio):
+        """On-channel ordered insert chain, then M1 test hooks.
 
-        Canonical order: clips summed on track → on-channel inserts →
-        mute/solo/volume/pan → split to main output (set_track_output)
-        AND post-fader sends (then send level). Inserts sit before the
-        split, so they affect both the main path and sends. They are
-        not applied on the bus or master in this slice.
+        Canonical order: clips summed on the channel → insert chain →
+        mute/solo/volume/pan → split to main output AND sends.
+        Empty ``[]`` is dry. Inserts also run on named buses after the
+        bus input is summed (see ``_mix_region``).
 
         Tests may assign ``engine._insert_processor`` (callable
         ``(track_id, audio) -> audio``) or use ``effects_rack.set_test_insert``.
+        Those hooks run *after* the persisted chain so M1 tests stay valid.
         """
         if audio is None:
             return audio
+        slots = self.get_inserts(channel_id)
+        audio = _effects_apply_insert_chain(audio, slots)
         proc = self._insert_processor
         if callable(proc):
-            out = proc(track_id, audio)
+            out = proc(channel_id, audio)
             return audio if out is None else out
-        return _effects_apply_inserts(track_id, audio)
+        return _effects_apply_inserts(channel_id, audio)
+
+    def _reset_meters(self):
+        self._meters = {
+            "tracks": {},
+            "buses": {},
+            "master": {"peak": 0.0, "rms": 0.0},
+        }
+
+    def _meter_stats(self, buf):
+        if buf is None:
+            return {"peak": 0.0, "rms": 0.0}
+        arr = np.asarray(buf)
+        if arr.size == 0:
+            return {"peak": 0.0, "rms": 0.0}
+        peak = float(np.max(np.abs(arr)))
+        rms = float(np.sqrt(np.mean(np.square(arr, dtype=np.float64))))
+        if not math.isfinite(peak):
+            peak = 0.0
+        if not math.isfinite(rms):
+            rms = 0.0
+        return {"peak": peak, "rms": rms}
+
+    def _record_meter(self, kind, key, buf):
+        stats = self._meter_stats(buf)
+        if kind == "master":
+            self._meters["master"] = stats
+        elif kind == "buses":
+            self._meters["buses"][key] = stats
+        else:
+            self._meters["tracks"][int(key)] = stats
 
     def _mix_records(
         self,
@@ -966,29 +1035,22 @@ class AudioEngine(QObject):
 
         Canonical on-channel mix order (one coherent path):
           1. clips summed on the track (this pass)
-          2. on-channel inserts (identity/dry today; ``_apply_inserts``)
+          2. on-channel insert chain (empty ``[]`` is dry)
           3. mute/solo/volume/pan
-          4. split to main output (set_track_output) AND post-fader sends
-             (send copy is then multiplied by per-send level; default 1.0)
+          4. split to main output (set_track_output) AND extra sends
 
-        Inserts are ON-CHANNEL: they run before the split, so they affect
-        both the main output and sends. They are not on the bus or master.
+        Send tap rule (documented):
+          - ``post`` (default, M1): after mute/solo/volume/pan. Source
+            volume 0 silences a post send.
+          - ``pre``: after inserts, before volume/pan. Mute/solo still
+            silence both taps. Pre send ignores source fader/pan.
 
-        Track output routing: after inserts, add tracks whose dest is
-        another track_id into that dest buffer (before dest volume/pan),
-        mix dest=master tracks through mute/solo/volume/pan into master,
-        and mix dest=bus tracks through their own mute/solo/volume/pan
-        into that bus (no bus fader), then sum each bus into master. A
-        track routed to a track or bus is not also summed directly into
-        master.
-
-        Sends are EXTRA (in-memory only): a post-fader copy of the source
-        track's own (insert-processed) clips is multiplied by send level
-        and also added to each send dest. Bus send dests sum into that
-        bus (no bus fader). Track send dests add into the dest buffer
-        before the dest fader. The main output path is unchanged — send
-        is not a replacement. Level 0 silences only the send path.
+        Track→track remains one-hop (source own-sum into dest before
+        dest fader). Buses are real mixer channels: inserts, fader, pan,
+        extra sends, then dest Master or another bus/track. Default bus
+        (vol 1, pan 0, dest master, no inserts) matches M1 bus-as-sum.
         """
+        self._reset_meters()
         mix = np.zeros((n_frames, self.channels), dtype=np.float32)
         any_solo = any(self.track_solos.values()) if self.track_solos else False
         region_end = start_sample + n_frames
@@ -1015,7 +1077,7 @@ class AudioEngine(QObject):
             n = ov_end - ov_start
             buf[dest_off:dest_off + n] += audio[src_off:src_off + n]
 
-        # Pass 1b: on-channel inserts (dry/identity today). Before fader/split.
+        # Pass 1b: on-channel insert chain. Before fader/split.
         for tid in list(own.keys()):
             processed = self._apply_inserts(tid, own[tid])
             if processed is not None:
@@ -1023,13 +1085,11 @@ class AudioEngine(QObject):
 
         # Pass 2: route source own-sum into dest track before dest fader.
         # Snapshot own clips so A→B only adds A's clips (one hop, no walker).
-        # Named-bus dests are not track dests — they are mixed in pass 4.
         combined = {tid: arr.copy() for tid, arr in own.items()}
         for src_tid, buf in own.items():
             dest = self.get_track_output(src_tid)
             if dest == "master":
                 continue
-            # bool is a subclass of int — never treat True/False as a track id.
             if isinstance(dest, bool) or not isinstance(dest, (int, np.integer)):
                 continue
             dest_id = int(dest)
@@ -1038,12 +1098,30 @@ class AudioEngine(QObject):
                 self._ensure_track_defaults(dest_id)
             combined[dest_id] += buf
 
-        # Extra sends: post-fader copy of each source's own clips.
-        # Track dests add into dest combined (before dest fader). Bus dests
-        # are applied when buses are mixed (pass 4).
-        known_buses = self._buses
-        send_to_bus = []
+        known_buses = set(self._buses)
+        bus_inputs: Dict[str, np.ndarray] = {}
+
+        def _ensure_bus_input(name: str) -> np.ndarray:
+            if name not in bus_inputs:
+                bus_inputs[name] = np.zeros((n_frames, self.channels), dtype=np.float32)
+            return bus_inputs[name]
+
+        def _scale_send(segment, level):
+            if level == 1.0:
+                return segment
+            return segment * np.float32(level)
+
         post_fader_own = {}
+        pre_fader_own = {}
+
+        def _own_pre_fader(tid):
+            if tid not in pre_fader_own:
+                src_buf = own.get(tid)
+                if src_buf is None or not self._track_audible(tid, any_solo):
+                    pre_fader_own[tid] = None
+                else:
+                    pre_fader_own[tid] = src_buf
+            return pre_fader_own[tid]
 
         def _own_post_fader(tid):
             if tid not in post_fader_own:
@@ -1056,6 +1134,21 @@ class AudioEngine(QObject):
                     )
             return post_fader_own[tid]
 
+        def _route_send_audio(dest, send_buf):
+            if isinstance(dest, bool):
+                return
+            if isinstance(dest, (int, np.integer)):
+                dest_id = int(dest)
+                if dest_id not in combined:
+                    combined[dest_id] = np.zeros(
+                        (n_frames, self.channels), dtype=np.float32
+                    )
+                    self._ensure_track_defaults(dest_id)
+                combined[dest_id] += send_buf
+            elif isinstance(dest, str) and dest in known_buses:
+                _ensure_bus_input(dest)
+                bus_inputs[dest] += send_buf
+
         for src_key, dests in self.track_sends.items():
             try:
                 if isinstance(src_key, bool):
@@ -1063,10 +1156,8 @@ class AudioEngine(QObject):
                 src_tid = int(src_key)
             except (TypeError, ValueError):
                 continue
-            segment = _own_post_fader(src_tid)
-            if segment is None:
-                continue
             src_levels = self.track_send_levels.get(src_tid) or {}
+            src_modes = self.track_send_modes.get(src_tid) or {}
             for dest in dests or []:
                 if isinstance(dest, bool):
                     continue
@@ -1076,54 +1167,92 @@ class AudioEngine(QObject):
                 except (TypeError, ValueError):
                     level = 1.0
                 if not math.isfinite(level) or level <= 0.0:
-                    # 0 silences only this send; invalid stuffed levels skip.
                     continue
-                send_buf = segment if level == 1.0 else (segment * np.float32(level))
-                if isinstance(dest, (int, np.integer)):
-                    dest_id = int(dest)
-                    if dest_id not in combined:
-                        combined[dest_id] = np.zeros(
-                            (n_frames, self.channels), dtype=np.float32
-                        )
-                        self._ensure_track_defaults(dest_id)
-                    combined[dest_id] += send_buf
-                elif isinstance(dest, str) and dest in known_buses:
-                    send_to_bus.append((dest, send_buf))
+                mode = src_modes.get(dest, "post")
+                if mode == "pre":
+                    segment = _own_pre_fader(src_tid)
+                else:
+                    segment = _own_post_fader(src_tid)
+                if segment is None:
+                    continue
+                _route_send_audio(dest, _scale_send(segment, level))
 
-        # Pass 3: tracks whose dest is master (or missing) go through
-        # mute/solo/volume/pan into master.
+        # Pass 3/4: channel out. dest=master → mix; dest=bus → bus input.
         for track_id, buf in combined.items():
-            if self.get_track_output(track_id) != "master":
-                continue
             segment = self._apply_track_fader(track_id, buf, any_solo)
-            if segment is None:
-                continue
-            mix += segment
-
-        # Pass 4: tracks whose dest is a named bus. Source mute/solo/volume/pan
-        # apply, then the bus (no fader in this slice) sums into master.
-        bus_mix = {}
-        for track_id, buf in combined.items():
+            self._record_meter("tracks", track_id, segment)
             dest = self.get_track_output(track_id)
-            if not isinstance(dest, str) or dest == "master":
-                continue
-            if dest not in known_buses:
-                continue
-            segment = self._apply_track_fader(track_id, buf, any_solo)
             if segment is None:
                 continue
-            if dest not in bus_mix:
-                bus_mix[dest] = np.zeros((n_frames, self.channels), dtype=np.float32)
-            bus_mix[dest] += segment
-        for dest, segment in send_to_bus:
-            if dest not in bus_mix:
-                bus_mix[dest] = np.zeros((n_frames, self.channels), dtype=np.float32)
-            bus_mix[dest] += segment
-        for bbuf in bus_mix.values():
-            mix += bbuf
+            if dest == "master":
+                mix += segment
+            elif isinstance(dest, str) and dest in known_buses:
+                _ensure_bus_input(dest)
+                bus_inputs[dest] += segment
 
-        # Soft master limiter (same as the original engine)
+        def _apply_bus_fader(name, buf):
+            volume = self.bus_volumes.get(name, 1.0)
+            segment = buf if volume == 1.0 else buf * np.float32(volume)
+            pan = self.bus_pans.get(name, 0.0)
+            if pan != 0.0:
+                segment = apply_pan(segment, pan)
+            return segment
+
+        def _spill_into_track(dest_id, buf):
+            """Bus → track: dest fader, then that track's dest (master/bus)."""
+            segment = self._apply_track_fader(dest_id, buf, any_solo)
+            if segment is None:
+                return
+            dest = self.get_track_output(dest_id)
+            if dest == "master":
+                mix[...] += segment
+            elif isinstance(dest, str) and dest in known_buses:
+                _ensure_bus_input(dest)
+                bus_inputs[dest] += segment
+
+        for bus in self._bus_process_order():
+            buf = bus_inputs.get(bus)
+            if buf is None:
+                buf = np.zeros((n_frames, self.channels), dtype=np.float32)
+            processed = self._apply_inserts(bus, buf)
+            if processed is not None:
+                buf = processed
+            pre = buf
+            post = _apply_bus_fader(bus, pre)
+            self._record_meter("buses", bus, post)
+
+            src_levels = self.bus_send_levels.get(bus) or {}
+            src_modes = self.bus_send_modes.get(bus) or {}
+            for dest in self.bus_sends.get(bus) or []:
+                if isinstance(dest, bool):
+                    continue
+                level = src_levels.get(dest, 1.0)
+                try:
+                    level = float(level)
+                except (TypeError, ValueError):
+                    level = 1.0
+                if not math.isfinite(level) or level <= 0.0:
+                    continue
+                mode = src_modes.get(dest, "post")
+                segment = pre if mode == "pre" else post
+                send_buf = _scale_send(segment, level)
+                if isinstance(dest, str) and dest in known_buses:
+                    _ensure_bus_input(dest)
+                    bus_inputs[dest] += send_buf
+                elif isinstance(dest, (int, np.integer)):
+                    _spill_into_track(int(dest), send_buf)
+
+            dest = self.get_bus_output(bus)
+            if dest == "master":
+                mix += post
+            elif isinstance(dest, str) and dest in known_buses:
+                _ensure_bus_input(dest)
+                bus_inputs[dest] += post
+            elif isinstance(dest, (int, np.integer)):
+                _spill_into_track(int(dest), post)
+
         mix = np.tanh(mix)
+        self._record_meter("master", "master", mix)
         return mix.astype(np.float32, copy=False)
 
     # ------------------------------------------------------------------
@@ -1207,28 +1336,54 @@ class AudioEngine(QObject):
         """Set track solo state"""
         self.track_solos[track_id] = soloed
 
+    def _follow_dest_node(self, dest):
+        """Next graph node for a dest, or None at master / unknown terminal."""
+        if dest is None or dest == "":
+            return None
+        if isinstance(dest, bool):
+            return None
+        if isinstance(dest, (int, np.integer)):
+            return ("t", int(dest))
+        if isinstance(dest, str):
+            stripped = dest.strip()
+            if not stripped or stripped.lower() == "master":
+                return None
+            if stripped.lstrip("-").isdigit():
+                return ("t", int(stripped))
+            if stripped in self._buses:
+                return ("b", stripped)
+            return None
+        return None
+
+    def _node_output(self, node):
+        kind, ident = node
+        if kind == "t":
+            return self.get_track_output(ident)
+        return self.get_bus_output(ident)
+
+    def _would_create_node_cycle(self, src_node, dest) -> bool:
+        """True if src_node → dest closes a main-output cycle."""
+        current = self._follow_dest_node(dest)
+        if current is None:
+            return False
+        if current == src_node:
+            return True
+        seen = set()
+        while current is not None:
+            if current == src_node or current in seen:
+                return True
+            seen.add(current)
+            current = self._follow_dest_node(self._node_output(current))
+        return False
+
     def _would_create_output_cycle(self, track_id: int, dest_id: int) -> bool:
         """True if routing track_id → dest_id would close a cycle.
 
-        Walk dest_id's existing output chain (one hop at a time). If we
+        Walk dest_id's existing output chain (tracks and buses). If we
         reach track_id, the new edge would loop. ``"master"`` / missing
-        dest ends the walk. Mix stays one-hop; this is setter-only.
+        dest ends the walk. Mix stays one-hop for tracks; this is setter-only.
         """
-        seen = set()
-        current = dest_id
-        while True:
-            if current == track_id:
-                return True
-            if current in seen:
-                return True
-            seen.add(current)
-            nxt = self.get_track_output(current)
-            if nxt == "master":
-                return False
-            try:
-                current = int(nxt)
-            except (TypeError, ValueError):
-                return False
+        return self._would_create_node_cycle(("t", int(track_id)), dest_id)
 
     def set_track_output(self, track_id: int, dest):
         """Set where a track's audio is summed.
@@ -1236,11 +1391,11 @@ class AudioEngine(QObject):
         dest ``None`` / missing / ``"master"`` → today's mix (track sums
         into master after its own volume/pan/mute/solo). dest an int
         track id → that track's buffer (then dest fader applies). dest a
-        known bus name → that bus (source fader/mute/solo apply; bus has
-        no fader and mixes to master). Unknown dest is rejected.
-        Self-output and multi-track cycles (0→1→0, 0→1→2→0, …) are
+        known bus name → that bus (source fader/mute/solo apply, then the
+        bus channel: inserts/fader/pan/dest). Unknown dest is rejected.
+        Self-output and multi-track/bus cycles (0→1→0, 0→drum→0, …) are
         rejected in this setter so the mix stays well-defined without a
-        cycle walker. Buses only mix to master in this slice (no bus→track).
+        recursive track walker.
         """
         track_id = self._coerce_track_id(track_id, {})
         if dest is None:
@@ -1256,6 +1411,11 @@ class AudioEngine(QObject):
             if stripped.lstrip("-").isdigit():
                 dest_id = int(stripped)
             elif stripped in self._buses:
+                if self._would_create_node_cycle(("t", track_id), stripped):
+                    raise ValueError(
+                        f"Track output cycle: routing {track_id} to {stripped!r} "
+                        f"would create a cycle"
+                    )
                 self._ensure_track_defaults(track_id)
                 self.track_outputs[track_id] = stripped
                 return
@@ -1308,7 +1468,7 @@ class AudioEngine(QObject):
         """Register a named mix bus (live graph; ProjectManager persists in .daw).
 
         Bus names are non-empty strings other than ``"master"``. Duplicate
-        add is idempotent. Buses mix to master with no fader in this slice.
+        add is idempotent. Default channel: volume 1.0, pan 0.0, dest master.
         """
         if not isinstance(name, str):
             raise ValueError(f"Bus name must be a string, got {type(name).__name__}")
@@ -1327,12 +1487,238 @@ class AudioEngine(QObject):
         """Alias of list_buses()."""
         return self.list_buses()
 
-    def _resolve_send_dest(self, track_id: int, dest):
+    def _require_bus(self, name):
+        if not isinstance(name, str):
+            raise ValueError(f"Unknown bus: {name!r}")
+        name = name.strip()
+        if name not in self._buses:
+            raise ValueError(f"Unknown bus: {name!r}")
+        return name
+
+    def get_bus_output(self, name):
+        """Return ``"master"``, dest track id, or another bus name."""
+        if not isinstance(name, str):
+            return "master"
+        name = name.strip()
+        dest = self.bus_outputs.get(name)
+        if dest is None or dest == "":
+            return "master"
+        if isinstance(dest, bool):
+            return dest
+        if isinstance(dest, str):
+            stripped = dest.strip()
+            if stripped.lower() == "master":
+                return "master"
+            if stripped.lstrip("-").isdigit():
+                return int(stripped)
+            return stripped
+        if isinstance(dest, (int, np.integer)):
+            return int(dest)
+        return dest
+
+    def set_bus_output(self, name, dest):
+        """Route a bus to Master (default), another bus, or a live track.
+
+        Track dests must themselves output to master or a bus (M1 one-hop:
+        we apply the dest track fader, then that track's dest — we do not
+        walk track→track). Cycles and unknown dests are rejected.
+        """
+        name = self._require_bus(name)
+        if dest is None:
+            self.bus_outputs.pop(name, None)
+            return
+        if isinstance(dest, str):
+            stripped = dest.strip()
+            if stripped == "" or stripped.lower() == "master":
+                self.bus_outputs.pop(name, None)
+                return
+            if stripped.lstrip("-").isdigit():
+                dest_norm = int(stripped)
+            elif stripped == name:
+                raise ValueError(f"Bus {name!r} cannot output to itself")
+            elif stripped in self._buses:
+                dest_norm = stripped
+            else:
+                raise ValueError(f"Unknown bus output dest: {dest!r}")
+        elif isinstance(dest, bool):
+            raise ValueError(f"Unknown bus output dest: {dest!r}")
+        elif isinstance(dest, (int, np.integer)):
+            dest_norm = int(dest)
+        else:
+            raise ValueError(f"Unknown bus output dest: {dest!r}")
+
+        if dest_norm == name:
+            raise ValueError(f"Bus {name!r} cannot output to itself")
+        if isinstance(dest_norm, int):
+            if dest_norm not in self._live_track_ids():
+                raise ValueError(f"Unknown bus output dest: {dest_norm}")
+            track_dest = self.get_track_output(dest_norm)
+            if isinstance(track_dest, (int, np.integer)):
+                raise ValueError(
+                    f"Bus {name!r} cannot output to track {dest_norm} because "
+                    f"that track outputs to another track (M1 one-hop)"
+                )
+        if self._would_create_node_cycle(("b", name), dest_norm):
+            raise ValueError(
+                f"Bus output cycle: routing {name!r} to {dest_norm!r} would create a cycle"
+            )
+        self.bus_outputs[name] = dest_norm
+
+    def set_bus_volume(self, name, volume: float):
+        name = self._require_bus(name)
+        self.bus_volumes[name] = max(0.0, min(1.0, float(volume)))
+
+    def get_bus_volume(self, name) -> float:
+        name = self._require_bus(name)
+        return float(self.bus_volumes.get(name, 1.0))
+
+    def set_bus_pan(self, name, pan: float):
+        name = self._require_bus(name)
+        self.bus_pans[name] = max(-1.0, min(1.0, float(pan)))
+
+    def get_bus_pan(self, name) -> float:
+        name = self._require_bus(name)
+        return float(self.bus_pans.get(name, 0.0))
+
+    def _bus_process_order(self):
+        """Topological order of buses (main dest + bus-to-bus sends)."""
+        buses = list(self._buses)
+        incoming = {b: 0 for b in buses}
+        edges = {b: [] for b in buses}
+        for bus in buses:
+            targets = []
+            dest = self.get_bus_output(bus)
+            if isinstance(dest, str) and dest in self._buses:
+                targets.append(dest)
+            elif isinstance(dest, (int, np.integer)):
+                td = self.get_track_output(int(dest))
+                if isinstance(td, str) and td in self._buses:
+                    targets.append(td)
+            for sdest in self.bus_sends.get(bus) or []:
+                if isinstance(sdest, str) and sdest in self._buses:
+                    targets.append(sdest)
+            for target in targets:
+                edges[bus].append(target)
+                incoming[target] += 1
+        queue = [b for b in sorted(buses) if incoming[b] == 0]
+        order = []
+        while queue:
+            bus = queue.pop(0)
+            order.append(bus)
+            for target in edges[bus]:
+                incoming[target] -= 1
+                if incoming[target] == 0:
+                    queue.append(target)
+                    queue.sort()
+        for bus in sorted(buses):
+            if bus not in order:
+                order.append(bus)
+        return order
+
+    def _insert_channel_key(self, channel_id, *, require_known=False):
+        """Normalize a track id or bus name used as an insert channel."""
+        if isinstance(channel_id, bool):
+            raise ValueError(f"Unknown insert channel: {channel_id!r}")
+        if isinstance(channel_id, str):
+            stripped = channel_id.strip()
+            if stripped in self._buses:
+                return stripped
+            if stripped.lstrip("-").isdigit():
+                return int(stripped)
+            if require_known:
+                raise ValueError(f"Unknown insert channel: {channel_id!r}")
+            return stripped
+        try:
+            return int(channel_id)
+        except (TypeError, ValueError):
+            raise ValueError(f"Unknown insert channel: {channel_id!r}")
+
+    def _normalize_insert_slot(self, slot):
+        if not isinstance(slot, dict):
+            raise ValueError(f"Insert slot must be a dict, got {type(slot).__name__}")
+        out = dict(slot)
+        typ = str(out.get("type") or "identity").strip().lower()
+        out["type"] = typ or "identity"
+        if "enabled" in out:
+            out["enabled"] = bool(out["enabled"])
+        return out
+
+    def set_inserts(self, channel_id, slots):
+        """Replace the ordered insert chain on a track or bus.
+
+        Empty list is dry/identity. Each slot is a dict (type, enabled,
+        params). Unknown types are stored and treated as identity.
+        """
+        key = self._insert_channel_key(channel_id, require_known=True)
+        if slots is None:
+            slots = []
+        if not isinstance(slots, list):
+            raise ValueError("Inserts must be a list of slot dicts")
+        self.channel_inserts[key] = [self._normalize_insert_slot(s) for s in slots]
+
+    def get_inserts(self, channel_id):
+        """Return a copy of the insert slot list (empty = dry)."""
+        try:
+            key = self._insert_channel_key(channel_id, require_known=False)
+        except ValueError:
+            return []
+        return [dict(s) for s in self.channel_inserts.get(key, [])]
+
+    def add_insert(self, channel_id, slot):
+        """Append one slot to the channel's insert chain."""
+        key = self._insert_channel_key(channel_id, require_known=True)
+        chain = list(self.channel_inserts.get(key, []))
+        chain.append(self._normalize_insert_slot(slot))
+        self.channel_inserts[key] = chain
+
+    def _validate_send_mode(self, mode):
+        if mode is None:
+            return "post"
+        if not isinstance(mode, str):
+            raise ValueError(f"Send mode must be 'pre' or 'post', got {mode!r}")
+        stripped = mode.strip().lower()
+        if stripped in ("pre", "pre-fader", "prefader"):
+            return "pre"
+        if stripped in ("post", "post-fader", "postfader", ""):
+            return "post"
+        raise ValueError(f"Send mode must be 'pre' or 'post', got {mode!r}")
+
+    def get_meters(self):
+        """Last-mix peak/rms for tracks, buses, and Master.
+
+        Values are finite floats from the most recent ``mix`` / ``render``.
+        Missing channels default to 0. No UI; engine data only.
+        """
+        return {
+            "tracks": {int(k): dict(v) for k, v in self._meters.get("tracks", {}).items()},
+            "buses": {str(k): dict(v) for k, v in self._meters.get("buses", {}).items()},
+            "master": dict(self._meters.get("master") or {"peak": 0.0, "rms": 0.0}),
+        }
+
+    def get_meter(self, channel="master"):
+        """Peak/rms for ``\"master\"``, a bus name, or a track id."""
+        meters = self.get_meters()
+        if channel is None or (
+            isinstance(channel, str) and channel.strip().lower() == "master"
+        ):
+            return meters["master"]
+        if isinstance(channel, str) and channel.strip() in self._buses:
+            return meters["buses"].get(channel.strip(), {"peak": 0.0, "rms": 0.0})
+        try:
+            tid = int(channel)
+        except (TypeError, ValueError):
+            return {"peak": 0.0, "rms": 0.0}
+        return meters["tracks"].get(tid, {"peak": 0.0, "rms": 0.0})
+
+    def _is_bus_source(self, source) -> bool:
+        return isinstance(source, str) and source.strip() in self._buses
+
+    def _resolve_send_dest(self, source, dest):
         """Normalize a send dest or raise ValueError.
 
         dest is a known bus name or a live track id. ``"master"`` is
         rejected: the main output path already covers master, and a send
-        to master would double the track. Self-send is rejected. Track
+        to master would double the source. Self-send is rejected. Track
         dests must already be live (unlike ``set_track_output``, which
         may create dest tracks).
         """
@@ -1345,6 +1731,8 @@ class AudioEngine(QObject):
             if stripped.lstrip("-").isdigit():
                 dest_id = int(stripped)
             elif stripped in self._buses:
+                if isinstance(source, str) and source.strip() == stripped:
+                    raise ValueError(f"Bus {stripped!r} cannot send to itself")
                 return stripped
             else:
                 raise ValueError(f"Unknown send dest: {dest!r}")
@@ -1355,8 +1743,8 @@ class AudioEngine(QObject):
         else:
             raise ValueError(f"Unknown send dest: {dest!r}")
 
-        if dest_id == track_id:
-            raise ValueError(f"Track {track_id} cannot send to itself")
+        if source == dest_id:
+            raise ValueError(f"Track {source} cannot send to itself")
         if dest_id not in self._live_track_ids():
             raise ValueError(f"Unknown send dest: {dest_id}")
         return dest_id
@@ -1379,84 +1767,150 @@ class AudioEngine(QObject):
             )
         return g
 
-    def add_send(self, track_id, dest, level=1.0):
-        """Add an extra send from track_id to dest (bus name or live track id).
+    def add_send(self, track_id, dest, level=1.0, mode="post"):
+        """Add an extra send from a track or bus to dest.
 
-        A send is EXTRA: the track still follows ``set_track_output`` to
-        its main dest, and a post-fader copy of the track's own clips is
-        multiplied by ``level`` (default 1.0 unity) and also mixed into
-        ``dest``. dest cannot be ``"master"`` (main output already
-        covers master). Duplicate send to the same dest is idempotent
-        (no double mix; existing level is kept). Self-send is rejected.
-        Live graph only here; ProjectManager persists sends in .daw 1.1.
+        A send is EXTRA: the source still follows its main output, and a
+        copy is multiplied by ``level`` and mixed into ``dest``.
+        ``mode`` is ``\"post\"`` (default, after fader — M1) or ``\"pre\"``
+        (after inserts, before fader/pan). Mute/solo silence both taps.
 
-        ``level`` must be a finite non-negative gain. 0.0 silences only
-        the send path. Unknown dest is ValueError.
+        dest cannot be ``\"master\"``. Duplicate send to the same dest is
+        idempotent (existing level/mode kept). Self-send is rejected.
+        Track→track sends do not participate in main-output cycle
+        detection (M1 extra-path rule). Bus→bus sends that would cycle
+        the bus graph are rejected. Unknown dest is ValueError.
         """
-        track_id = self._coerce_track_id(track_id, {})
-        dest_norm = self._resolve_send_dest(track_id, dest)
+        mode = self._validate_send_mode(mode)
         level = self._validate_send_level(level)
-        self._ensure_track_defaults(track_id)
-        sends = self.track_sends.setdefault(track_id, [])
+        if self._is_bus_source(track_id):
+            source = track_id.strip()
+            dest_norm = self._resolve_send_dest(source, dest)
+            if isinstance(dest_norm, str) and dest_norm in self._buses:
+                if self._would_create_node_cycle(("b", source), dest_norm):
+                    raise ValueError(
+                        f"Send cycle: {source!r} → {dest_norm!r} would create a cycle"
+                    )
+            sends = self.bus_sends.setdefault(source, [])
+            if dest_norm not in sends:
+                sends.append(dest_norm)
+                self.bus_send_levels.setdefault(source, {})[dest_norm] = level
+                self.bus_send_modes.setdefault(source, {})[dest_norm] = mode
+            return dest_norm
+        source = self._coerce_track_id(track_id, {})
+        dest_norm = self._resolve_send_dest(source, dest)
+        self._ensure_track_defaults(source)
+        sends = self.track_sends.setdefault(source, [])
         if dest_norm not in sends:
             sends.append(dest_norm)
-            self.track_send_levels.setdefault(track_id, {})[dest_norm] = level
+            self.track_send_levels.setdefault(source, {})[dest_norm] = level
+            self.track_send_modes.setdefault(source, {})[dest_norm] = mode
+        return dest_norm
 
     def get_sends(self, track_id):
-        """Return a copy of extra send dests for track_id (bus names / track ids)."""
+        """Return a copy of extra send dests (bus names / track ids)."""
+        if self._is_bus_source(track_id):
+            return list(self.bus_sends.get(track_id.strip(), []))
         track_id = self._coerce_track_id(track_id, {})
         return list(self.track_sends.get(track_id, []))
 
     def set_send_level(self, track_id, dest, level):
-        """Set per-send gain. dest must already be a send on this track.
-
-        ``level`` is a finite non-negative gain. 0.0 silences only the
-        send; the main output path is unchanged. Unknown dest, or a dest
-        that is not an existing send, is ValueError.
-        """
-        track_id = self._coerce_track_id(track_id, {})
-        dest_norm = self._resolve_send_dest(track_id, dest)
+        """Set per-send gain. dest must already be a send on this source."""
         level = self._validate_send_level(level)
-        sends = self.track_sends.get(track_id) or []
+        if self._is_bus_source(track_id):
+            source = track_id.strip()
+            dest_norm = self._resolve_send_dest(source, dest)
+            sends = self.bus_sends.get(source) or []
+            if dest_norm not in sends:
+                raise ValueError(f"No send from bus {source!r} to {dest_norm!r}")
+            self.bus_send_levels.setdefault(source, {})[dest_norm] = level
+            return
+        source = self._coerce_track_id(track_id, {})
+        dest_norm = self._resolve_send_dest(source, dest)
+        sends = self.track_sends.get(source) or []
         if dest_norm not in sends:
-            raise ValueError(
-                f"No send from track {track_id} to {dest_norm!r}"
-            )
-        self.track_send_levels.setdefault(track_id, {})[dest_norm] = level
+            raise ValueError(f"No send from track {source} to {dest_norm!r}")
+        self.track_send_levels.setdefault(source, {})[dest_norm] = level
 
     def get_send_level(self, track_id, dest):
         """Return the per-send gain (1.0 if never set). dest must be a send."""
-        track_id = self._coerce_track_id(track_id, {})
-        dest_norm = self._resolve_send_dest(track_id, dest)
-        sends = self.track_sends.get(track_id) or []
+        if self._is_bus_source(track_id):
+            source = track_id.strip()
+            dest_norm = self._resolve_send_dest(source, dest)
+            sends = self.bus_sends.get(source) or []
+            if dest_norm not in sends:
+                raise ValueError(f"No send from bus {source!r} to {dest_norm!r}")
+            return float(self.bus_send_levels.get(source, {}).get(dest_norm, 1.0))
+        source = self._coerce_track_id(track_id, {})
+        dest_norm = self._resolve_send_dest(source, dest)
+        sends = self.track_sends.get(source) or []
         if dest_norm not in sends:
-            raise ValueError(
-                f"No send from track {track_id} to {dest_norm!r}"
-            )
-        return float(self.track_send_levels.get(track_id, {}).get(dest_norm, 1.0))
+            raise ValueError(f"No send from track {source} to {dest_norm!r}")
+        return float(self.track_send_levels.get(source, {}).get(dest_norm, 1.0))
+
+    def set_send_mode(self, track_id, dest, mode):
+        """Set ``pre`` or ``post`` (default) for an existing send."""
+        mode = self._validate_send_mode(mode)
+        if self._is_bus_source(track_id):
+            source = track_id.strip()
+            dest_norm = self._resolve_send_dest(source, dest)
+            sends = self.bus_sends.get(source) or []
+            if dest_norm not in sends:
+                raise ValueError(f"No send from bus {source!r} to {dest_norm!r}")
+            self.bus_send_modes.setdefault(source, {})[dest_norm] = mode
+            return mode
+        source = self._coerce_track_id(track_id, {})
+        dest_norm = self._resolve_send_dest(source, dest)
+        sends = self.track_sends.get(source) or []
+        if dest_norm not in sends:
+            raise ValueError(f"No send from track {source} to {dest_norm!r}")
+        self.track_send_modes.setdefault(source, {})[dest_norm] = mode
+        return mode
+
+    def get_send_mode(self, track_id, dest):
+        """Return ``pre`` or ``post`` (default) for an existing send."""
+        if self._is_bus_source(track_id):
+            source = track_id.strip()
+            dest_norm = self._resolve_send_dest(source, dest)
+            sends = self.bus_sends.get(source) or []
+            if dest_norm not in sends:
+                raise ValueError(f"No send from bus {source!r} to {dest_norm!r}")
+            return self.bus_send_modes.get(source, {}).get(dest_norm, "post")
+        source = self._coerce_track_id(track_id, {})
+        dest_norm = self._resolve_send_dest(source, dest)
+        sends = self.track_sends.get(source) or []
+        if dest_norm not in sends:
+            raise ValueError(f"No send from track {source} to {dest_norm!r}")
+        return self.track_send_modes.get(source, {}).get(dest_norm, "post")
 
     def remove_send(self, track_id, dest):
         """Remove one send if present. Unknown / missing dest is a no-op."""
-        track_id = self._coerce_track_id(track_id, {})
-        sends = self.track_sends.get(track_id)
+        if self._is_bus_source(track_id):
+            source = track_id.strip()
+            sends = self.bus_sends.get(source)
+            maps = (self.bus_send_levels, self.bus_send_modes)
+            store = self.bus_sends
+        else:
+            source = self._coerce_track_id(track_id, {})
+            sends = self.track_sends.get(source)
+            maps = (self.track_send_levels, self.track_send_modes)
+            store = self.track_sends
         if not sends:
             return
         try:
-            dest_norm = self._resolve_send_dest(track_id, dest)
+            dest_norm = self._resolve_send_dest(source, dest)
         except ValueError:
-            if isinstance(dest, str):
-                dest_norm = dest.strip()
-            else:
-                dest_norm = dest
+            dest_norm = dest.strip() if isinstance(dest, str) else dest
         if dest_norm in sends:
             sends.remove(dest_norm)
-            levels = self.track_send_levels.get(track_id)
-            if levels is not None:
-                levels.pop(dest_norm, None)
-                if not levels:
-                    self.track_send_levels.pop(track_id, None)
+            for mapping in maps:
+                levels = mapping.get(source)
+                if levels is not None:
+                    levels.pop(dest_norm, None)
+                    if not levels:
+                        mapping.pop(source, None)
         if not sends:
-            self.track_sends.pop(track_id, None)
+            store.pop(source, None)
 
     def _live_track_ids(self):
         """Tracks that have been loaded or have volume/pan/mute/solo state.
@@ -1579,6 +2033,67 @@ class AudioEngine(QObject):
                         f"cycle: routing graph contains a cycle involving "
                         f"track {src_id} → {dest_id}"
                     )
+            elif dest_kind == "bus":
+                if self._would_create_node_cycle(("t", src_id), stripped):
+                    errors.append(
+                        f"cycle: routing graph contains a cycle involving "
+                        f"track {src_id} → {stripped!r}"
+                    )
+
+        for bus in sorted(known_buses):
+            dest = self.bus_outputs.get(bus, "master")
+            if dest is None or dest == "" or dest == "master":
+                continue
+            if isinstance(dest, bool):
+                errors.append(
+                    f"type error: bus {bus!r} dest {dest!r} is not "
+                    f"'master', int track id, or bus name"
+                )
+                continue
+            if isinstance(dest, str):
+                stripped = dest.strip()
+                if stripped.lower() == "master":
+                    continue
+                if stripped.lstrip("-").isdigit():
+                    dest_id = int(stripped)
+                    if dest_id not in live:
+                        errors.append(
+                            f"dangling dest: bus {bus!r} outputs to track "
+                            f"{dest_id} which is not live"
+                        )
+                    elif self._would_create_node_cycle(("b", bus), dest_id):
+                        errors.append(
+                            f"cycle: routing graph contains a cycle involving "
+                            f"bus {bus!r} → {dest_id}"
+                        )
+                elif stripped in known_buses:
+                    if self._would_create_node_cycle(("b", bus), stripped):
+                        errors.append(
+                            f"cycle: routing graph contains a cycle involving "
+                            f"bus {bus!r} → {stripped!r}"
+                        )
+                else:
+                    errors.append(
+                        f"dangling dest: bus {bus!r} outputs to unknown "
+                        f"bus {stripped!r}"
+                    )
+            elif isinstance(dest, (int, np.integer)):
+                dest_id = int(dest)
+                if dest_id not in live:
+                    errors.append(
+                        f"dangling dest: bus {bus!r} outputs to track "
+                        f"{dest_id} which is not live"
+                    )
+                elif self._would_create_node_cycle(("b", bus), dest_id):
+                    errors.append(
+                        f"cycle: routing graph contains a cycle involving "
+                        f"bus {bus!r} → {dest_id}"
+                    )
+            else:
+                errors.append(
+                    f"type error: bus {bus!r} dest {dest!r} is not "
+                    f"'master', int track id, or bus name"
+                )
 
         if errors:
             raise ValueError("; ".join(errors))

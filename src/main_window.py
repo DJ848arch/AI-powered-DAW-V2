@@ -861,11 +861,14 @@ class MainWindow(QMainWindow):
         # clear() wipes in-session buses/sends; restore after clips so
         # unused buses and send-to-track dests can be live.
         self.project_manager._apply_buses(self.audio_engine, data.get('buses'))
+        self.project_manager._apply_bus_mixer(self.audio_engine, data)
         self.project_manager._apply_track_outputs(self.audio_engine, outputs)
+        self.project_manager._apply_inserts(self.audio_engine, data.get('inserts'))
         self.project_manager._apply_sends(
             self.audio_engine,
             data.get('track_sends'),
             data.get('track_send_levels'),
+            data.get('track_send_modes'),
         )
         self.track_panel.sync_outputs_from_engine(self.audio_engine)
             
