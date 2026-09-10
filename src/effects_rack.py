@@ -2,12 +2,25 @@
 Audio Effects Rack UI
 Placeholder for audio effects processing
 
-On-channel insert DSP boundary (this slice): identity / dry.
-No VST, plugin hosting, or real EQ/reverb. AudioEngine calls
-apply_inserts(track_id, audio) after clips are summed on the track
-and before mute/solo/volume/pan and the split to main output +
-post-fader sends. Tests may install a fake insert via set_test_insert.
+Insert DSP (M2): a documented, ordered chain of built-in stages.
+No VST, plugin hosting, or marketplace. AudioEngine applies
+apply_insert_chain(slots, audio) on each channel (track or bus)
+after clips are summed and before mute/solo/volume/pan and the
+split to main output + sends.
+
+Built-in types (see SCHEMA.md):
+  identity / passthru — no-op
+  gain                — multiply by ``gain`` (default 1.0)
+  offset              — add ``amount`` (default 0.0); proves chain order
+
+Empty ``[]`` is dry/identity. ``enabled: false`` bypasses that slot.
+Unknown types are treated as identity. Tests may still install a fake
+insert via set_test_insert (M1 hook).
 """
+
+import math
+
+import numpy as np
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
@@ -21,6 +34,57 @@ from PyQt6.QtGui import QColor
 
 # Track_id -> callable(audio) -> audio. Test-only; not persisted.
 _TEST_INSERTS = {}
+
+# Documented built-in processors. Not a plugin host.
+INSERT_TYPES = ("identity", "passthru", "gain", "offset")
+
+
+def apply_insert_chain(audio, slots):
+    """Apply an ordered insert chain. Empty / None is identity (same object).
+
+    Each slot is a dict. Unknown keys are ignored by the processor but
+    kept on the slot by the engine. Disabled and unknown types are dry.
+    """
+    if audio is None:
+        return audio
+    if not slots:
+        return audio
+    out = audio
+    mutated = False
+    for slot in slots:
+        if not isinstance(slot, dict):
+            continue
+        if slot.get("enabled", True) is False:
+            continue
+        typ = str(slot.get("type") or "identity").strip().lower()
+        if typ in ("identity", "passthru", ""):
+            continue
+        if typ == "gain":
+            try:
+                gain = float(slot.get("gain", 1.0))
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(gain) or gain == 1.0:
+                continue
+            if not mutated:
+                out = audio * np.float32(gain)
+                mutated = True
+            else:
+                out = out * np.float32(gain)
+        elif typ == "offset":
+            try:
+                amount = float(slot.get("amount", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(amount) or amount == 0.0:
+                continue
+            if not mutated:
+                out = audio + np.float32(amount)
+                mutated = True
+            else:
+                out = out + np.float32(amount)
+        # unknown type: identity
+    return out
 
 
 def apply_inserts(track_id, audio):
