@@ -7,6 +7,8 @@ import numpy as np
 from audio_engine import AudioEngine
 from project import ProjectManager
 
+SCHEMA = ProjectManager.SCHEMA_VERSION
+
 SR = 8000
 
 
@@ -45,7 +47,7 @@ def _bare_project(**extra):
 
 
 def test_persist_named_bus_in_daw_json(tmp_path, qapp):
-    """A) Persist: add_bus('drum'); 0→drum; JSON has version 1.0, buses, dest."""
+    """A) Persist: add_bus('drum'); 0→drum; JSON has current schema, buses, dest."""
     pm = _pm(tmp_path)
     engine = AudioEngine(sample_rate=SR)
     engine.add_bus("drum")
@@ -57,7 +59,7 @@ def test_persist_named_bus_in_daw_json(tmp_path, qapp):
 
     with open(path, "r") as f:
         data = json.load(f)
-    assert data["version"] == "1.0"
+    assert data["version"] == SCHEMA
     assert "buses" in data
     assert "drum" in data["buses"]
     dest = _dest_for_track(data.get("track_outputs"), 0)
@@ -73,7 +75,7 @@ def test_missing_buses_key_is_no_buses(tmp_path, qapp):
 
     engine = AudioEngine(sample_rate=SR)
     loaded = pm.load_project(path, engine=engine)
-    assert "buses" not in loaded
+    assert loaded.get("buses") == []
     assert engine.list_buses() == []
     assert engine.get_track_output(0) == "master"
 
@@ -132,7 +134,7 @@ def test_main_window_file_save_load_survives_clear(tmp_path, qapp):
 
     with open(path, "r") as f:
         data = json.load(f)
-    assert data["version"] == "1.0"
+    assert data["version"] == SCHEMA
     assert "drum" in data.get("buses", [])
     dest = _dest_for_track(data.get("track_outputs"), 0)
     assert dest == "drum"

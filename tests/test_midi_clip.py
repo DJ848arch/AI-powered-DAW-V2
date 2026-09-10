@@ -5,6 +5,8 @@ import json
 from midi_clip import MidiClip, MidiNote
 from project import ProjectManager
 
+SCHEMA = ProjectManager.SCHEMA_VERSION
+
 
 def _pm(tmp_path):
     return ProjectManager(projects_dir=str(tmp_path / "projects"))
@@ -112,10 +114,10 @@ def test_new_track_includes_instrument():
     assert defaulted["instrument"] == "piano"
 
 
-def test_new_project_version_still_1_0_and_has_midi_clips():
+def test_new_project_current_schema_and_has_midi_clips():
     pm = ProjectManager(projects_dir="/tmp/aria-midi-unused")
     project = pm.new_project("MIDI Project")
-    assert project["version"] == "1.0"
+    assert project["version"] == SCHEMA
     assert "clips" in project
     assert "midi_clips" in project
     assert project["midi_clips"] == {}
@@ -125,7 +127,7 @@ def test_new_project_version_still_1_0_and_has_midi_clips():
 def test_save_load_preserves_track_instrument_and_midi_clips(tmp_path):
     pm = _pm(tmp_path)
     project = pm.new_project("With MIDI")
-    assert project["version"] == "1.0"
+    assert project["version"] == SCHEMA
 
     track = pm.new_track(0, name="Keys", instrument="piano")
     project["tracks"][str(track["id"])] = track
@@ -143,7 +145,7 @@ def test_save_load_preserves_track_instrument_and_midi_clips(tmp_path):
     assert pm.save_project(path, project) is True
 
     loaded = pm.load_project(path)
-    assert loaded["version"] == "1.0"
+    assert loaded["version"] == SCHEMA
 
     track_rec = loaded["tracks"]["0"]
     assert track_rec["instrument"] == "piano"
@@ -184,7 +186,7 @@ def test_load_legacy_1_0_without_instrument_or_midi_clips(tmp_path):
     path.write_text(json.dumps(legacy))
 
     loaded = pm.load_project(str(path))
-    assert loaded["version"] == "1.0"
+    assert loaded["version"] == SCHEMA
     assert loaded["name"] == "Old Project"
     assert "instrument" not in loaded["tracks"]["0"]
     assert "midi_clips" not in loaded

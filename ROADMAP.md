@@ -5,18 +5,18 @@ ClickUp = plan (workspace `90141241740`, Team Space `90145572472`, existing ARIA
 Notion = development journal.
 Google Calendar = daily increment (America/Boise, availability FREE).
 
-**CURRENTLY APPROVED:** Milestone 1 Routing only.
+**CURRENTLY APPROVED:** Milestone 2 first three only (schema audit + unified `.daw` 1.1 + M1-compat load/save + round-trip tests). M1 Routing Core is complete. See `SCHEMA.md`.
 
-**NOT APPROVED** (planning items only, do not execute): FluidSynth, unifying `.daw` vs C++ `SongDocument`, GitHub catch-up, blank C++ Edit, OpenJarvis, JUCE, new AI systems/roles.
+**NOT APPROVED** (planning items only, do not execute): FluidSynth, unifying `.daw` vs C++ `SongDocument`, blank C++ Edit, OpenJarvis, JUCE, new AI systems/roles, real insert DSP / send-audio / bus-mixer / metering (later M2 slices).
 
 Two project formats exist (**document, do not unify** unless Daniel explicitly approves):
 
 | Format | Location | Schema | Role today |
 |--------|----------|--------|------------|
-| Python `.daw` | `src/project.py` | `version: "1.0"` | Running UI/session format. JSON. Tracks, clips, `midi_clips`, timeline, transport, crash-safe atomic save. |
+| Python `.daw` | `src/project.py` + `SCHEMA.md` | `version: "1.1"` (M1 files are `1.0`, migrated on load) | Running UI/session format. JSON. Tracks, clips, `midi_clips`, timeline, transport, routing graph, crash-safe atomic save. |
 | C++ `SongDocument` | `aria-cpp/resources/schemas/song_schema.json` | `schemaVersion: "1.0.0"` | MIDI-only document for the JUCE/Tracktion target. Separate from `.daw`. JUCE on hold. |
 
-GitHub `https://github.com/DJ848arch/AI-powered-DAW-V2` `main` is behind (Aug 22 playback slice only). Do not clone. Do not push. Do not catch up unless Daniel approves.
+GitHub `https://github.com/DJ848arch/AI-powered-DAW-V2` `main` has M1 Routing Core (`49cb12a`). M2 schema work proceeds from that.
 
 ClickUp import landed 2026-08-28: folder **AI-Powered DAW** `901412060516`, list **M1 Routing — APPROVED** `901419670127`, list **Roadmap — planning only** `901419670128`. Existing ARIA list `901419614214` / task `86bbngfza` remains the approved-goal pointer (retitled). Do not treat future milestones as authorization to execute them.
 
@@ -252,7 +252,7 @@ Do not execute. Do not create daily batches until Daniel approves the milestone 
 
 ## Milestone 2 — Project/session reliability
 
-**Status:** PLANNING ONLY.
+**Status:** APPROVED first three only (2026-09-09). Schema 1.1 + migrate + tests in `SCHEMA.md`. Later M2 graph/audio slices still queued.
 **Name:** Project/session reliability.
 
 ### Objective

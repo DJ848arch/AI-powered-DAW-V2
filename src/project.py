@@ -1,12 +1,16 @@
 """
 Project Management with JSON Serialization
 Handles project save/load operations
+
+Authoritative .daw shape: SCHEMA.md (version 1.1).
+Engine owns signal flow; this module persists/restores the graph.
 """
 
+import math
 import os
 import json
 import shutil
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 from datetime import datetime
 
@@ -16,6 +20,8 @@ class ProjectManager:
     
     PROJECT_EXTENSION = ".daw"
     AUTOSAVE_DIR = ".autosave"
+    SCHEMA_VERSION = "1.1"
+    LEGACY_SCHEMA_VERSION = "1.0"
     
     def __init__(self, projects_dir: str = None):
         """Initialize project manager"""
@@ -29,7 +35,7 @@ class ProjectManager:
     def new_project(self, name: str = "Untitled Project") -> Dict:
         """Create a new project"""
         project = {
-            'version': '1.0',
+            'version': self.SCHEMA_VERSION,
             'name': name,
             'created_at': datetime.now().isoformat(),
             'modified_at': datetime.now().isoformat(),
@@ -51,6 +57,9 @@ class ProjectManager:
             'midi_clips': {},
             'track_outputs': {},
             'buses': [],
+            'track_sends': {},
+            'track_send_levels': {},
+            'inserts': {},
             'settings': {
                 'sample_rate': 44100,
                 'bit_depth': 16,
@@ -230,24 +239,239 @@ class ProjectManager:
             except (ValueError, TypeError):
                 continue
 
+    def _normalize_send_dest(self, dest):
+        """Int track id or bus name. Master / empty / invalid → None."""
+        if dest is None or isinstance(dest, bool):
+            return None
+        if isinstance(dest, str):
+            stripped = dest.strip()
+            if not stripped or stripped.lower() == "master":
+                return None
+            if stripped.lstrip("-").isdigit():
+                return int(stripped)
+            return stripped
+        try:
+            return int(dest)
+        except (TypeError, ValueError):
+            return None
+
+    def _normalize_send_level(self, level):
+        """Finite non-negative gain, or None if invalid."""
+        if isinstance(level, bool):
+            return None
+        try:
+            gain = float(level)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(gain) or gain < 0.0:
+            return None
+        return gain
+
+    def _normalize_track_sends(self, mapping) -> Dict:
+        """JSON sends: string keys, dest list (int track or bus name)."""
+        if not mapping or not isinstance(mapping, dict):
+            return {}
+        out = {}
+        for key, dests in mapping.items():
+            try:
+                if isinstance(key, bool):
+                    continue
+                src = int(key)
+                src_str = str(src)
+            except (TypeError, ValueError):
+                continue
+            if dests is None or isinstance(dests, dict):
+                continue
+            if isinstance(dests, (str, bytes)) or not hasattr(dests, "__iter__"):
+                dests = [dests]
+            seen = set()
+            kept = []
+            for dest in dests:
+                dest_norm = self._normalize_send_dest(dest)
+                if dest_norm is None or dest_norm == src:
+                    continue
+                marker = ("t", dest_norm) if isinstance(dest_norm, int) else ("b", dest_norm)
+                if marker in seen:
+                    continue
+                seen.add(marker)
+                kept.append(dest_norm)
+            if kept:
+                out[src_str] = kept
+        return out
+
+    def _normalize_track_send_levels(self, mapping) -> Dict:
+        """JSON send levels: string keys, dest-key → finite ≥ 0 gain."""
+        if not mapping or not isinstance(mapping, dict):
+            return {}
+        out = {}
+        for key, levels in mapping.items():
+            try:
+                if isinstance(key, bool):
+                    continue
+                src_str = str(int(key))
+            except (TypeError, ValueError):
+                continue
+            if not levels or not isinstance(levels, dict):
+                continue
+            kept = {}
+            for dest_key, raw in levels.items():
+                dest_norm = self._normalize_send_dest(dest_key)
+                gain = self._normalize_send_level(raw)
+                if dest_norm is None or gain is None:
+                    continue
+                kept[str(dest_norm)] = gain
+            if kept:
+                out[src_str] = kept
+        return out
+
+    def _normalize_inserts(self, mapping) -> Dict:
+        """JSON insert slots: string keys, list of dicts. Empty = identity.
+
+        Slots are schema only (no DSP this slice). Unknown dict keys kept.
+        Non-dict items are dropped.
+        """
+        if not mapping or not isinstance(mapping, dict):
+            return {}
+        out = {}
+        for key, slots in mapping.items():
+            try:
+                if isinstance(key, bool):
+                    continue
+                src_str = str(int(key))
+            except (TypeError, ValueError):
+                continue
+            if slots is None:
+                out[src_str] = []
+                continue
+            if not isinstance(slots, list):
+                continue
+            kept = [dict(slot) for slot in slots if isinstance(slot, dict)]
+            out[src_str] = kept
+        return out
+
+    def _collect_sends(self, engine) -> Tuple[Dict, Dict]:
+        """Normalized track_sends + track_send_levels from a live engine."""
+        if engine is None:
+            return {}, {}
+        raw = getattr(engine, "track_sends", None) or {}
+        sends = {}
+        levels = {}
+        for key, dests in raw.items():
+            try:
+                if isinstance(key, bool):
+                    continue
+                src = int(key)
+            except (TypeError, ValueError):
+                continue
+            src_str = str(src)
+            if hasattr(engine, "get_sends"):
+                try:
+                    dests = engine.get_sends(src)
+                except Exception:
+                    dests = dests
+            kept = []
+            kept_levels = {}
+            for dest in dests or []:
+                dest_norm = self._normalize_send_dest(dest)
+                if dest_norm is None or dest_norm == src:
+                    continue
+                kept.append(dest_norm)
+                gain = 1.0
+                if hasattr(engine, "get_send_level"):
+                    try:
+                        gain = float(engine.get_send_level(src, dest_norm))
+                    except (ValueError, TypeError):
+                        gain = 1.0
+                norm_gain = self._normalize_send_level(gain)
+                kept_levels[str(dest_norm)] = 1.0 if norm_gain is None else norm_gain
+            if kept:
+                sends[src_str] = kept
+                levels[src_str] = kept_levels
+        return (
+            self._normalize_track_sends(sends),
+            self._normalize_track_send_levels(levels),
+        )
+
+    def _ensure_engine_track_live(self, engine, track_id: int):
+        """Make a dest track live via public mixer state (no new engine API)."""
+        if engine is None or not hasattr(engine, "set_track_volume"):
+            return
+        try:
+            current = engine.get_track_volume(track_id) if hasattr(engine, "get_track_volume") else 1.0
+        except Exception:
+            current = 1.0
+        try:
+            engine.set_track_volume(track_id, current)
+        except Exception:
+            pass
+
+    def _apply_sends(self, engine, sends=None, levels=None):
+        """Restore extra sends after buses. Invalid dests skipped.
+
+        Track dests are made live with the dest's existing volume (default 1.0)
+        so add_send's live-dest rule can succeed without a new engine API.
+        """
+        if engine is None:
+            return
+        project = self.current_project or {}
+        self._apply_buses(engine, project.get("buses"))
+        if sends is None:
+            sends = project.get("track_sends")
+        if levels is None:
+            levels = project.get("track_send_levels")
+        normalized = self._normalize_track_sends(sends)
+        level_map = self._normalize_track_send_levels(levels)
+        for src_str, dests in normalized.items():
+            try:
+                src = int(src_str)
+            except (TypeError, ValueError):
+                continue
+            src_levels = level_map.get(src_str) or {}
+            for dest in dests:
+                if isinstance(dest, int):
+                    self._ensure_engine_track_live(engine, dest)
+                gain = src_levels.get(str(dest), 1.0)
+                try:
+                    engine.add_send(src, dest, gain)
+                except (ValueError, TypeError):
+                    continue
+
+    def canonicalize_project(self, project_data: Dict) -> Dict:
+        """Ensure current schema graph keys. Does not drop unknown keys."""
+        if not isinstance(project_data, dict):
+            return project_data
+
+        project_data["version"] = self.SCHEMA_VERSION
+        project_data["track_outputs"] = self._normalize_track_outputs(
+            project_data.get("track_outputs")
+        )
+        project_data["buses"] = self._normalize_buses(project_data.get("buses"))
+        project_data["track_sends"] = self._normalize_track_sends(
+            project_data.get("track_sends")
+        )
+        project_data["track_send_levels"] = self._normalize_track_send_levels(
+            project_data.get("track_send_levels")
+        )
+        project_data["inserts"] = self._normalize_inserts(project_data.get("inserts"))
+        return project_data
+
     def save_project(self, file_path: str, project_data: Dict, engine=None) -> bool:
-        """Save project to file. Optional engine overlays track_outputs and buses."""
+        """Save project to file. Optional engine overlays routing graph keys."""
         try:
             # Update metadata
             project_data['modified_at'] = datetime.now().isoformat()
 
+            prior = self.current_project or {}
+            if "inserts" not in project_data and prior.get("inserts") is not None:
+                project_data["inserts"] = prior.get("inserts")
+
             if engine is not None:
                 project_data['track_outputs'] = self._collect_track_outputs(engine)
                 project_data['buses'] = self._collect_buses(engine)
-            else:
-                if 'track_outputs' in project_data:
-                    project_data['track_outputs'] = self._normalize_track_outputs(
-                        project_data.get('track_outputs')
-                    )
-                if 'buses' in project_data:
-                    project_data['buses'] = self._normalize_buses(
-                        project_data.get('buses')
-                    )
+                sends, levels = self._collect_sends(engine)
+                project_data['track_sends'] = sends
+                project_data['track_send_levels'] = levels
+            self.canonicalize_project(project_data)
 
             # Backup the existing good file before replacing it
             if os.path.exists(file_path):
@@ -261,11 +485,12 @@ class ProjectManager:
             return False
             
     def load_project(self, file_path: str, engine=None) -> Dict:
-        """Load project from file. Optional engine restores track_outputs."""
+        """Load project from file. Optional engine restores routing graph."""
         with open(file_path, 'r') as f:
             project = json.load(f)
 
         project = self.migrate_project(project)
+        project = self.canonicalize_project(project)
 
         if not self.validate_project(project):
             raise ValueError(
@@ -278,6 +503,11 @@ class ProjectManager:
         if engine is not None:
             self._apply_buses(engine, project.get('buses'))
             self._apply_track_outputs(engine, project.get('track_outputs') or {})
+            self._apply_sends(
+                engine,
+                project.get('track_sends'),
+                project.get('track_send_levels'),
+            )
 
         return project
         
@@ -321,6 +551,7 @@ class ProjectManager:
                 f"{os.path.basename(file_path)}.autosave"
             )
 
+            self.canonicalize_project(project_data)
             self._atomic_write_json(autosave_path, project_data)
                 
         except Exception as e:
@@ -405,12 +636,22 @@ class ProjectManager:
         return True
         
     def migrate_project(self, project_data: Dict) -> Dict:
-        """Migrate old project format to current"""
-        version = project_data.get('version', '1.0')
-        
-        # Add migration logic here as versions change
-        if version == '1.0':
-            # Current version, no migration needed
-            pass
-            
+        """Migrate old project format to current (1.0 → 1.1).
+
+        Missing graph keys get M1-safe empties. Unknown keys are kept.
+        Version is bumped; canonicalize_project runs on load after this.
+        """
+        if not isinstance(project_data, dict):
+            return project_data
+
+        version = str(project_data.get('version') or self.LEGACY_SCHEMA_VERSION)
+
+        if version in (self.LEGACY_SCHEMA_VERSION, "1"):
+            project_data['version'] = self.SCHEMA_VERSION
+            project_data.setdefault('track_outputs', {})
+            project_data.setdefault('buses', [])
+            project_data.setdefault('track_sends', {})
+            project_data.setdefault('track_send_levels', {})
+            project_data.setdefault('inserts', {})
+
         return project_data

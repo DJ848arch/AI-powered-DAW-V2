@@ -7,6 +7,8 @@ import numpy as np
 from audio_engine import AudioEngine
 from project import ProjectManager
 
+SCHEMA = ProjectManager.SCHEMA_VERSION
+
 SR = 8000
 
 
@@ -28,7 +30,7 @@ def _dest_for_track(mapping, track_id):
 
 
 def test_persist_track_output_in_daw_json(tmp_path, qapp):
-    """A) PERSIST: set 0→1, save with engine; JSON has track_outputs, schema 1.0."""
+    """A) PERSIST: set 0→1, save with engine; JSON has track_outputs, current schema."""
     pm = _pm(tmp_path)
     engine = AudioEngine(sample_rate=SR)
     engine.set_track_output(0, 1)
@@ -39,7 +41,7 @@ def test_persist_track_output_in_daw_json(tmp_path, qapp):
 
     with open(path, "r") as f:
         data = json.load(f)
-    assert data["version"] == "1.0"
+    assert data["version"] == SCHEMA
     assert "track_outputs" in data
     dest = _dest_for_track(data["track_outputs"], 0)
     assert dest is not None
