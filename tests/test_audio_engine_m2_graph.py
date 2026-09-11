@@ -382,3 +382,112 @@ def test_schema_1_1_graph_keys_still_roundtrip(tmp_path, qapp):
     assert engine_b.get_send_level(0, "fx") == 0.5
     assert engine_b.get_send_mode(0, "fx") == "post"
     assert loaded["inserts"]["0"][0]["type"] == "identity"
+
+
+# ---------------------------------------------------------------------------
+# Fuller known-signal proofs (86bbz6x1c)
+# ---------------------------------------------------------------------------
+
+
+def test_known_signal_meter_peak_rms_exact(qapp):
+    """Constant tone: track meter is pre-tanh post-fader; master is tanh'd."""
+    amp = 0.4
+    engine = AudioEngine(sample_rate=SR)
+    engine.load_audio(0, _tone(SR, amp))
+    mixed = engine.mix()
+    expected_master = float(np.tanh(amp))
+    assert np.allclose(mixed, np.float32(expected_master), atol=1e-5)
+
+    track = engine.get_meter(0)
+    master = engine.get_meter("master")
+    assert track["peak"] == pytest.approx(amp, abs=1e-5)
+    assert track["rms"] == pytest.approx(amp, abs=1e-5)
+    assert master["peak"] == pytest.approx(expected_master, abs=1e-5)
+    assert master["rms"] == pytest.approx(expected_master, abs=1e-5)
+
+
+def test_mute_zeros_track_meter_and_master(qapp):
+    engine = AudioEngine(sample_rate=SR)
+    engine.load_audio(0, _tone(SR, 0.5))
+    engine.set_track_mute(0, True)
+    mixed = engine.mix()
+    assert np.max(np.abs(mixed)) < 1e-6
+    track = engine.get_meter(0)
+    assert track["peak"] < 1e-6
+    assert track["rms"] < 1e-6
+    assert engine.get_meter("master")["peak"] < 1e-6
+
+
+def test_insert_then_post_send_then_bus_fader_meters(qapp):
+    """Insert 0.5 → post send 1.0 to fx → bus fader 0.5; known master + meters."""
+    amp = 0.4
+    engine = AudioEngine(sample_rate=SR)
+    engine.load_audio(0, _tone(SR, amp))
+    engine.add_bus("fx")
+    engine.set_inserts(0, [{"type": "gain", "gain": 0.5}])
+    engine.add_send(0, "fx", level=1.0, mode="post")
+    engine.set_bus_volume("fx", 0.5)
+
+    mixed = engine.mix()
+    # Main: amp*0.5; send post-fader amp*0.5 through bus vol 0.5 → amp*0.25
+    expected = float(np.tanh(amp * 0.5 + amp * 0.5 * 0.5))
+    assert np.allclose(mixed, np.float32(expected), atol=1e-5)
+
+    meters = engine.get_meters()
+    assert meters["tracks"][0]["peak"] == pytest.approx(amp * 0.5, abs=1e-5)
+    assert meters["buses"]["fx"]["peak"] == pytest.approx(amp * 0.5 * 0.5, abs=1e-5)
+    assert meters["master"]["peak"] == pytest.approx(expected, abs=1e-5)
+
+
+def test_pre_send_ignores_track_fader_post_follows(qapp):
+    """Known signal: vol 0.5 — post send scales, pre send does not."""
+    amp = 0.4
+    engine = AudioEngine(sample_rate=SR)
+    engine.load_audio(0, _tone(SR, amp))
+    engine.add_bus("fx")
+    engine.set_track_volume(0, 0.5)
+
+    engine.add_send(0, "fx", level=1.0, mode="post")
+    post_mix = engine.mix()
+    # main amp*0.5 + send amp*0.5
+    assert np.allclose(post_mix, np.float32(np.tanh(amp * 0.5 + amp * 0.5)), atol=1e-5)
+
+    engine.set_send_mode(0, "fx", "pre")
+    pre_mix = engine.mix()
+    # main amp*0.5 + pre send amp (no track fader)
+    assert np.allclose(pre_mix, np.float32(np.tanh(amp * 0.5 + amp)), atol=1e-5)
+    assert not np.allclose(post_mix, pre_mix, atol=1e-5)
+
+
+def test_send_level_zero_leaves_bus_meter_quiet(qapp):
+    """Send level 0: main still meters; bus that only receives the send is quiet."""
+    amp = 0.4
+    engine = AudioEngine(sample_rate=SR)
+    engine.load_audio(0, _tone(SR, amp))
+    engine.add_bus("fx")
+    engine.add_send(0, "fx", level=0.0)
+    mixed = engine.mix()
+    assert np.allclose(mixed, np.float32(np.tanh(amp)), atol=1e-5)
+
+    meters = engine.get_meters()
+    assert meters["tracks"][0]["peak"] == pytest.approx(amp, abs=1e-5)
+    # Bus still processed (empty input → zero after fader).
+    assert meters["buses"].get("fx", {"peak": 0.0})["peak"] < 1e-6
+    assert meters["master"]["peak"] == pytest.approx(float(np.tanh(amp)), abs=1e-5)
+
+
+def test_bus_path_only_master_meter_matches_tanh(qapp):
+    """0→drum with bus vol 0.5: track meter raw fader amp; bus post vol; master tanh."""
+    amp = 0.4
+    engine = AudioEngine(sample_rate=SR)
+    engine.load_audio(0, _tone(SR, amp))
+    engine.add_bus("drum")
+    engine.set_track_output(0, "drum")
+    engine.set_bus_volume("drum", 0.5)
+    mixed = engine.mix()
+    expected = float(np.tanh(amp * 0.5))
+    assert np.allclose(mixed, np.float32(expected), atol=1e-5)
+
+    assert engine.get_meter(0)["peak"] == pytest.approx(amp, abs=1e-5)
+    assert engine.get_meter("drum")["peak"] == pytest.approx(amp * 0.5, abs=1e-5)
+    assert engine.get_meter("master")["peak"] == pytest.approx(expected, abs=1e-5)

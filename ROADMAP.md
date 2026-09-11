@@ -9,11 +9,19 @@ Google Calendar = daily increment (America/Boise, availability FREE).
 
 **M1 Routing Core:** APPROVED 2026-09-09 evening; CLOSED for execution.
 
-**M2 first three (DONE 2026-09-09):** schema audit + authoritative model (`SCHEMA.md`), `.daw` 1.1 migrate with M1 compat, M1 regression + schema round-trip tests. Merged PR #1 → `main` @ `eb54f37`. Pytest 139 passed.
+**M2 DONE so far:**
+- First three (2026-09-09): schema audit + `SCHEMA.md`, `.daw` 1.1 migrate with M1 compat, M1 regression + schema round-trip. PR #1 → `main` @ `eb54f37`.
+- Second three (2026-09-09): real insert chain, pre/post sends, bus mixer channels. PR #2 → `main` @ `9da9aec`. Pytest **156 passed**.
+
+**TODAY 2026-09-11 batch** (ClickUp `86bbz6wfa`):
+1. Safe graph rebuilds polish — Engine — `86bbz6wvg`
+2. Metering UI consume engine meters — UI — `86bbz6wwv`
+3. Fuller audio-backed QA — QA — `86bbz6x1c`
+Then M2 completion report + STOP if DoD met. Do not start M3 without Daniel.
 
 **HOLD forever until Daniel says otherwise:** FluidSynth, JUCE, OpenJarvis, blank C++ Edit, unrelated AI.
 
-**NOT APPROVED** (planning items only, do not execute): unifying Python `.daw` with C++ `SongDocument`, new AI systems/roles. Later M2 slices (real inserts/sends/bus DSP/metering/safe rebuilds/audio-backed QA) need the next green-light batch — do not freestyle the whole milestone.
+**NOT APPROVED** (planning items only, do not execute): unifying Python `.daw` with C++ `SongDocument`, new AI systems/roles. Do not freestyle beyond the green-lit daily three.
 
 Two project formats exist (**document, do not unify** unless Daniel explicitly approves):
 
