@@ -22,6 +22,7 @@ import numpy as np
 try:
     from effects_rack import apply_inserts as _effects_apply_inserts
     from effects_rack import apply_insert_chain as _effects_apply_insert_chain
+    from effects_rack import clear_test_insert as _effects_clear_test_insert
 except Exception:
     def _effects_apply_inserts(track_id, audio):
         """Identity fallback when the effects rack is unavailable."""
@@ -30,6 +31,10 @@ except Exception:
     def _effects_apply_insert_chain(audio, slots):
         """Identity fallback when the effects rack is unavailable."""
         return audio
+
+    def _effects_clear_test_insert(track_id):
+        """No-op fallback when the effects rack is unavailable."""
+        return
 
 try:
     import soundfile as sf
@@ -452,9 +457,81 @@ class AudioEngine(QObject):
         """Load many clips. Each clip's start/trim is respected."""
         return [self.load_audio(c, **kwargs) for c in (clips or [])]
 
+    def _require_transport_stopped(self):
+        """Reject graph rebuilds while play/pause is active (mid-callback unsafe)."""
+        if self.is_playing or self.is_paused:
+            raise RuntimeError("stop transport before graph rebuild")
+
+    @staticmethod
+    def _dest_matches(dest, target) -> bool:
+        """True if a stored output/send dest refers to ``target`` (track id or bus)."""
+        if dest is None or isinstance(dest, bool):
+            return False
+        if isinstance(target, str):
+            return isinstance(dest, str) and dest.strip() == target
+        try:
+            tid = int(target)
+        except (TypeError, ValueError):
+            return False
+        if isinstance(dest, bool):
+            return False
+        if isinstance(dest, (int, np.integer)):
+            return int(dest) == tid
+        if isinstance(dest, str):
+            stripped = dest.strip()
+            if stripped.lstrip("-").isdigit():
+                return int(stripped) == tid
+        return False
+
+    def _drop_sends_to_dest(self, dest_target):
+        """Drop every track/bus send whose dest matches ``dest_target``."""
+        for store, levels_map, modes_map in (
+            (self.track_sends, self.track_send_levels, self.track_send_modes),
+            (self.bus_sends, self.bus_send_levels, self.bus_send_modes),
+        ):
+            for src, dests in list(store.items()):
+                kept = []
+                for d in list(dests or []):
+                    if self._dest_matches(d, dest_target):
+                        levels = levels_map.get(src)
+                        if levels is not None:
+                            levels.pop(d, None)
+                            if not levels:
+                                levels_map.pop(src, None)
+                        modes = modes_map.get(src)
+                        if modes is not None:
+                            modes.pop(d, None)
+                            if not modes:
+                                modes_map.pop(src, None)
+                    else:
+                        kept.append(d)
+                if kept:
+                    store[src] = kept
+                else:
+                    store.pop(src, None)
+
+    def _reroute_outputs_away_from(self, dest_target):
+        """Point track/bus main outputs that targeted ``dest_target`` to master."""
+        for src, dest in list(self.track_outputs.items()):
+            if self._dest_matches(dest, dest_target):
+                self.track_outputs[src] = "master"
+        for bus, dest in list(self.bus_outputs.items()):
+            if self._dest_matches(dest, dest_target):
+                self.bus_outputs.pop(bus, None)
+
     def unload_track(self, track_id: int):
-        """Unload audio from a track (and its clips)."""
+        """Unload a track and clean all live-graph refs to it.
+
+        Requires transport stopped. Other tracks/buses that output or send
+        to this track are cleaned (outputs → master; sends dropped). The
+        track's own outputs/sends/inserts and test-insert hooks are cleared
+        so ``validate_graph`` stays clean — no stale refs left behind.
+        """
+        self._require_transport_stopped()
         track_id = self._coerce_track_id(track_id, {})
+        # Clean inbound refs while the id is still meaningful.
+        self._reroute_outputs_away_from(track_id)
+        self._drop_sends_to_dest(track_id)
         self.clips = [c for c in self.clips if c.get("track_id") != track_id]
         if track_id in self.track_buffers:
             del self.track_buffers[track_id]
@@ -472,26 +549,15 @@ class AudioEngine(QObject):
         self.track_send_levels.pop(track_id, None)
         self.track_send_modes.pop(track_id, None)
         self.channel_inserts.pop(track_id, None)
-        for src, dests in list(self.track_sends.items()):
-            kept = [d for d in dests if d != track_id]
-            if kept:
-                self.track_sends[src] = kept
-            else:
-                del self.track_sends[src]
-            levels = self.track_send_levels.get(src)
-            if levels is not None:
-                levels.pop(track_id, None)
-                if not levels:
-                    self.track_send_levels.pop(src, None)
-            modes = self.track_send_modes.get(src)
-            if modes is not None:
-                modes.pop(track_id, None)
-                if not modes:
-                    self.track_send_modes.pop(src, None)
+        try:
+            _effects_clear_test_insert(track_id)
+        except Exception:
+            pass
         self._rebuild_track_buffers()
 
     def clear(self):
         """Remove all loaded clips and track buffers."""
+        self._require_transport_stopped()
         self.clips = []
         self.track_buffers = {}
         self.master_mix = None
@@ -1486,6 +1552,48 @@ class AudioEngine(QObject):
     def get_buses(self):
         """Alias of list_buses()."""
         return self.list_buses()
+
+    def remove_bus(self, name: str):
+        """Remove a named bus and clean routing that pointed at it.
+
+        Requires transport stopped. Track/bus outputs to this bus become
+        ``"master"``; sends to this bus are dropped. Bus channel state
+        (volume/pan/output/sends/inserts) is cleared. Missing bus is a
+        no-op (idempotent). ``"master"`` / empty names are rejected.
+        """
+        self._require_transport_stopped()
+        if not isinstance(name, str):
+            raise ValueError(f"Bus name must be a string, got {type(name).__name__}")
+        name = name.strip()
+        if not name:
+            raise ValueError("Bus name must be non-empty")
+        if name.lower() == "master":
+            raise ValueError('Bus name cannot be "master"')
+        if name not in self._buses:
+            return
+        self._reroute_outputs_away_from(name)
+        self._drop_sends_to_dest(name)
+        self._buses.discard(name)
+        self.bus_outputs.pop(name, None)
+        self.bus_volumes.pop(name, None)
+        self.bus_pans.pop(name, None)
+        self.bus_sends.pop(name, None)
+        self.bus_send_levels.pop(name, None)
+        self.bus_send_modes.pop(name, None)
+        self.channel_inserts.pop(name, None)
+        try:
+            _effects_clear_test_insert(name)
+        except Exception:
+            pass
+
+    def rebuild_graph(self):
+        """Re-validate the live graph after structural edits.
+
+        Does not silently mutate routing — ``unload_track`` / ``remove_bus``
+        are responsible for leaving a valid graph. Requires transport stopped.
+        """
+        self._require_transport_stopped()
+        return self.validate_graph()
 
     def _require_bus(self, name):
         if not isinstance(name, str):

@@ -137,6 +137,11 @@ def set_test_insert(track_id, fn=None, gain=None):
     _TEST_INSERTS[key] = fn
 
 
+def clear_test_insert(track_id):
+    """Remove the test insert for one channel (track id or bus name)."""
+    set_test_insert(track_id)
+
+
 def clear_test_inserts():
     """Remove all test inserts (test isolation)."""
     _TEST_INSERTS.clear()

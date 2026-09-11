@@ -71,20 +71,16 @@ def test_type_error_dest_stuffed_or_setter_rejects(qapp):
 
 
 def test_stale_output_after_unload_invalid_not_mutated(qapp):
-    """Unload dest: leftover dest pointing at unloaded track is invalid; no fix."""
+    """Unload dest: inbound outputs are cleaned to master; stuffed stale still fails."""
     engine = AudioEngine(sample_rate=SR)
     engine.load_audio(0, _tone(64, 0.2))
     engine.load_audio(1, _tone(64, 0.3))
     engine.set_track_output(0, 1)
     engine.unload_track(1)
-    # unload clears track 1; dest 0→1 now points at a non-live track
+    # Safe rebuild: track 0 that targeted 1 is rerouted to master.
     assert 1 not in engine.track_buffers
-    before = _snapshot(engine)
-    assert before.get(0) == 1
-    with pytest.raises(ValueError):
-        engine.validate_graph()
-    assert engine.track_outputs == before
-    assert engine.track_outputs[0] == 1
+    assert engine.get_track_output(0) == "master"
+    assert engine.validate_graph() is None
 
     # Leftover source entry after unload of the source itself
     engine2 = AudioEngine(sample_rate=SR)
