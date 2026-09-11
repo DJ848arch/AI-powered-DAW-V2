@@ -3,12 +3,86 @@ Track Panel with Volume, Pan, Mute, Solo Controls
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QSlider, QPushButton, QFrame, QScrollArea, 
-    QLineEdit, QSizePolicy, QComboBox
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QSlider, QPushButton, QFrame, QScrollArea,
+    QLineEdit, QSizePolicy, QComboBox, QProgressBar
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPalette
+
+
+def _safe_meter_pair(stats):
+    """Normalize engine meter dict to finite peak/rms floats. Never invent levels."""
+    if not isinstance(stats, dict):
+        return 0.0, 0.0
+    try:
+        peak = float(stats.get("peak", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        peak = 0.0
+    try:
+        rms = float(stats.get("rms", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        rms = 0.0
+    if peak != peak or peak in (float("inf"), float("-inf")):  # NaN / inf
+        peak = 0.0
+    if rms != rms or rms in (float("inf"), float("-inf")):
+        rms = 0.0
+    return peak, rms
+
+
+class MeterReadout(QWidget):
+    """Compact peak bar + peak/rms labels. Display-only; values come from engine."""
+
+    def __init__(self, label: str = "", parent=None):
+        super().__init__(parent)
+        self._peak = 0.0
+        self._rms = 0.0
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        self.name_label = QLabel(label)
+        self.name_label.setFixedWidth(48)
+        self.name_label.setStyleSheet("color: #bbb; font-size: 10px;")
+        row.addWidget(self.name_label)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 1000)
+        self.bar.setValue(0)
+        self.bar.setTextVisible(False)
+        self.bar.setFixedHeight(10)
+        self.bar.setStyleSheet(
+            "QProgressBar { background: #222; border: 1px solid #444; }"
+            "QProgressBar::chunk { background: #4caf50; }"
+        )
+        row.addWidget(self.bar, 1)
+        self.value_label = QLabel("0.00 / 0.00")
+        self.value_label.setFixedWidth(78)
+        self.value_label.setStyleSheet("color: #9ad; font-size: 10px;")
+        self.value_label.setToolTip("peak / rms (from engine)")
+        row.addWidget(self.value_label)
+
+    def set_label(self, text: str):
+        self.name_label.setText(text)
+
+    def set_levels(self, peak: float, rms: float):
+        peak, rms = _safe_meter_pair({"peak": peak, "rms": rms})
+        self._peak = peak
+        self._rms = rms
+        # Display scale only — does not compute peak/rms.
+        self.bar.setValue(int(max(0.0, min(1.0, peak)) * 1000))
+        self.value_label.setText(f"{peak:.2f} / {rms:.2f}")
+        if peak >= 0.99:
+            chunk = "#e74c3c"
+        elif peak >= 0.8:
+            chunk = "#f1c40f"
+        else:
+            chunk = "#4caf50"
+        self.bar.setStyleSheet(
+            "QProgressBar { background: #222; border: 1px solid #444; }"
+            f"QProgressBar::chunk {{ background: {chunk}; }}"
+        )
+
+    def get_levels(self):
+        return {"peak": self._peak, "rms": self._rms}
 
 
 class TrackPanel(QWidget):
@@ -31,6 +105,12 @@ class TrackPanel(QWidget):
         self.selected_track_id = None
         self.next_track_id = 0
         self.engine = None
+        self._bus_meters = {}  # bus name -> MeterReadout
+        self._last_meters = {
+            "tracks": {},
+            "buses": {},
+            "master": {"peak": 0.0, "rms": 0.0},
+        }
         
         self._setup_ui()
         
@@ -61,6 +141,28 @@ class TrackPanel(QWidget):
         
         self.scroll_area.setWidget(self.track_container)
         layout.addWidget(self.scroll_area)
+        
+        # Compact meter strip: Master + known buses (not a mixer redesign)
+        self.meter_strip = QFrame()
+        self.meter_strip.setObjectName("meter_strip")
+        self.meter_strip.setStyleSheet(
+            "QFrame#meter_strip { background: #2a2a2a; border-top: 1px solid #444; }"
+        )
+        meter_layout = QVBoxLayout(self.meter_strip)
+        meter_layout.setContentsMargins(6, 4, 6, 4)
+        meter_layout.setSpacing(2)
+        meter_title = QLabel("Meters")
+        meter_title.setStyleSheet("color: #888; font-size: 10px; font-weight: bold;")
+        meter_layout.addWidget(meter_title)
+        self.master_meter = MeterReadout("Master")
+        self.master_meter.setObjectName("master_meter")
+        meter_layout.addWidget(self.master_meter)
+        self.bus_meter_container = QWidget()
+        self.bus_meter_layout = QVBoxLayout(self.bus_meter_container)
+        self.bus_meter_layout.setContentsMargins(0, 0, 0, 0)
+        self.bus_meter_layout.setSpacing(2)
+        meter_layout.addWidget(self.bus_meter_container)
+        layout.addWidget(self.meter_strip)
         
         # Add track button
         self.add_track_btn = QPushButton("+ Add Track")
@@ -238,6 +340,126 @@ class TrackPanel(QWidget):
             return
         for tid, widget in self.tracks.items():
             widget.set_dest(engine.get_track_output(tid))
+
+    def _ensure_bus_meter(self, name: str):
+        if name in self._bus_meters:
+            return self._bus_meters[name]
+        readout = MeterReadout(name)
+        readout.setObjectName(f"bus_meter_{name}")
+        self.bus_meter_layout.addWidget(readout)
+        self._bus_meters[name] = readout
+        return readout
+
+    def _prune_bus_meters(self, keep):
+        keep_set = set(keep)
+        for name in list(self._bus_meters.keys()):
+            if name not in keep_set:
+                widget = self._bus_meters.pop(name)
+                self.bus_meter_layout.removeWidget(widget)
+                widget.deleteLater()
+
+    def update_meters_from_engine(self, engine=None):
+        """Pull peak/rms from engine.get_meters() into track/bus/Master UI.
+
+        Missing channels show 0.0. Never raises. Does not compute levels.
+        """
+        engine = engine if engine is not None else self.engine
+        zero = {"peak": 0.0, "rms": 0.0}
+        try:
+            if engine is None or not hasattr(engine, "get_meters"):
+                meters = {"tracks": {}, "buses": {}, "master": dict(zero)}
+            else:
+                meters = engine.get_meters()
+                if not isinstance(meters, dict):
+                    meters = {"tracks": {}, "buses": {}, "master": dict(zero)}
+        except Exception:
+            meters = {"tracks": {}, "buses": {}, "master": dict(zero)}
+
+        track_meters = meters.get("tracks") or {}
+        bus_meters = meters.get("buses") or {}
+        master_stats = meters.get("master") or zero
+
+        # Tracks: use engine dict; missing → zero (also try get_meter if present)
+        displayed_tracks = {}
+        for tid, widget in self.tracks.items():
+            stats = None
+            if tid in track_meters:
+                stats = track_meters[tid]
+            else:
+                try:
+                    stats = track_meters.get(int(tid))
+                except (TypeError, ValueError):
+                    stats = None
+            if stats is None and engine is not None and hasattr(engine, "get_meter"):
+                try:
+                    stats = engine.get_meter(tid)
+                except Exception:
+                    stats = zero
+            if stats is None:
+                stats = zero
+            peak, rms = _safe_meter_pair(stats)
+            widget.set_meter(peak, rms)
+            displayed_tracks[int(tid)] = {"peak": peak, "rms": rms}
+
+        # Master
+        m_peak, m_rms = _safe_meter_pair(master_stats)
+        self.master_meter.set_levels(m_peak, m_rms)
+
+        # Buses: known from list_buses + any reported in get_meters
+        known = list(self._known_buses(engine))
+        for name in bus_meters.keys():
+            if isinstance(name, str) and name.strip() and name.strip().lower() != "master":
+                if name.strip() not in known:
+                    known.append(name.strip())
+        self._prune_bus_meters(known)
+        displayed_buses = {}
+        for name in known:
+            stats = bus_meters.get(name)
+            if stats is None and engine is not None and hasattr(engine, "get_meter"):
+                try:
+                    stats = engine.get_meter(name)
+                except Exception:
+                    stats = zero
+            if stats is None:
+                stats = zero
+            peak, rms = _safe_meter_pair(stats)
+            self._ensure_bus_meter(name).set_levels(peak, rms)
+            displayed_buses[name] = {"peak": peak, "rms": rms}
+
+        self._last_meters = {
+            "tracks": displayed_tracks,
+            "buses": displayed_buses,
+            "master": {"peak": m_peak, "rms": m_rms},
+        }
+        return self._last_meters
+
+    def get_displayed_meters(self):
+        """Last values shown in the panel (after update_meters_from_engine)."""
+        return {
+            "tracks": {
+                int(k): dict(v) for k, v in self._last_meters.get("tracks", {}).items()
+            },
+            "buses": {
+                str(k): dict(v) for k, v in self._last_meters.get("buses", {}).items()
+            },
+            "master": dict(
+                self._last_meters.get("master") or {"peak": 0.0, "rms": 0.0}
+            ),
+        }
+
+    def clear_meters(self):
+        """Show zeros on all meter widgets (e.g. after stop/clear)."""
+        zero = {"peak": 0.0, "rms": 0.0}
+        for widget in self.tracks.values():
+            widget.set_meter(0.0, 0.0)
+        self.master_meter.set_levels(0.0, 0.0)
+        for readout in self._bus_meters.values():
+            readout.set_levels(0.0, 0.0)
+        self._last_meters = {
+            "tracks": {int(tid): dict(zero) for tid in self.tracks},
+            "buses": {name: dict(zero) for name in self._bus_meters},
+            "master": dict(zero),
+        }
         
     def clear(self):
         """Clear all tracks"""
@@ -245,6 +467,7 @@ class TrackPanel(QWidget):
             self.remove_track(track_id)
         self.next_track_id = 0
         self.selected_track_id = None
+        self.clear_meters()
         
     def get_state(self):
         """Get panel state for saving"""
@@ -285,7 +508,7 @@ class TrackWidget(QFrame):
     selected = pyqtSignal(int)
     volume_changed = pyqtSignal(float)
     pan_changed = pyqtSignal(float)
-    mute_changed =pyqtSignal(bool)
+    mute_changed = pyqtSignal(bool)
     solo_changed = pyqtSignal(bool)
     renamed = pyqtSignal(str)
     remove_requested = pyqtSignal()
@@ -297,13 +520,15 @@ class TrackWidget(QFrame):
         self.track_id = track_id
         self.name = name
         self.is_selected = False
+        self._meter_peak = 0.0
+        self._meter_rms = 0.0
         
         self._setup_ui()
         self._update_style()
         
     def _setup_ui(self):
         """Set up the UI"""
-        self.setFixedHeight(108)
+        self.setFixedHeight(128)
         self.setFrameStyle(QFrame.Shape.StyledPanel)
         
         outer = QVBoxLayout(self)
@@ -431,6 +656,11 @@ class TrackWidget(QFrame):
         self.dest_combo.currentIndexChanged.connect(self._on_dest_index_changed)
         dest_row.addWidget(self.dest_combo, 1)
         outer.addLayout(dest_row)
+
+        # Meter row — peak bar + peak/rms from engine only
+        self.meter_readout = MeterReadout("Lvl")
+        self.meter_readout.setObjectName("track_meter")
+        outer.addWidget(self.meter_readout)
         
     def _update_style(self):
         """Update widget style based on selection state"""
@@ -529,6 +759,16 @@ class TrackWidget(QFrame):
         if data is None or data == "master":
             return "master"
         return data
+
+    def set_meter(self, peak: float, rms: float):
+        """Display engine peak/rms. Does not compute levels."""
+        peak, rms = _safe_meter_pair({"peak": peak, "rms": rms})
+        self._meter_peak = peak
+        self._meter_rms = rms
+        self.meter_readout.set_levels(peak, rms)
+
+    def get_meter(self):
+        return {"peak": self._meter_peak, "rms": self._meter_rms}
         
     def set_volume(self, volume: float):
         """Set volume (0.0 to 1.0)"""

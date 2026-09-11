@@ -58,6 +58,11 @@ class MainWindow(QMainWindow):
         self.autosave_timer = QTimer(self)
         self.autosave_timer.timeout.connect(self._autosave)
         self.autosave_timer.start(60000)  # Auto-save every minute
+
+        # Non-blocking meter refresh during play (consumes engine.get_meters)
+        self.meter_timer = QTimer(self)
+        self.meter_timer.setInterval(50)
+        self.meter_timer.timeout.connect(self._refresh_meters)
         
     def _setup_ui(self):
         """Set up the central widget and main layout"""
@@ -500,18 +505,25 @@ class MainWindow(QMainWindow):
             self.audio_engine.load_audio(clip.track_id, audio, start=start)
         self.audio_engine.play(start_position=self.timeline.playhead_position)
         self.timeline.start_playback()
+        self._refresh_meters()
+        if not self.meter_timer.isActive():
+            self.meter_timer.start()
         
     def _on_pause(self):
         """Handle pause button"""
         self.status_label.setText("Paused")
         self.audio_engine.pause()
         self.timeline.pause_playback()
+        self.meter_timer.stop()
+        self._refresh_meters()
         
     def _on_stop(self):
         """Handle stop button"""
         self.status_label.setText("Stopped")
         self.audio_engine.stop()
         self.timeline.stop_playback()
+        self.meter_timer.stop()
+        self.track_panel.clear_meters()
 
     def _on_playback_position(self, position):
         """Keep the status-bar clock on the engine playhead"""
@@ -524,6 +536,15 @@ class MainWindow(QMainWindow):
         """Engine reached the end of the mix"""
         self.status_label.setText("Stopped")
         self.timeline.stop_playback()
+        self.meter_timer.stop()
+        self._refresh_meters()
+
+    def _refresh_meters(self):
+        """Pull finite peak/rms from audio_engine into the track panel (non-blocking)."""
+        try:
+            self.track_panel.update_meters_from_engine(self.audio_engine)
+        except Exception:
+            pass
 
     def _on_engine_error(self, message):
         """Surface engine errors in the status bar"""
