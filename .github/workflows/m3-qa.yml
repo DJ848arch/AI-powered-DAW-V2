@@ -1,4 +1,4 @@
-name: M3 QA
+name: M3 QA\n# M3 branch gate: focused + full regression + smoke
 
 on:
   push:
