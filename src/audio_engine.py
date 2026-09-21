@@ -555,13 +555,18 @@ class AudioEngine(QObject):
             pass
         self._rebuild_track_buffers()
 
-    def clear(self):
-        """Remove all loaded clips and track buffers."""
+    def clear_audio(self):
+        """Remove loaded audio while preserving the live mixer/routing graph."""
         self._require_transport_stopped()
         self.clips = []
         self.track_buffers = {}
         self.master_mix = None
         self._clip_seq = 0
+        self._reset_meters()
+
+    def clear(self):
+        """Remove all loaded clips, track buffers, and the routing graph."""
+        self.clear_audio()
         self.track_outputs = {}
         self._buses = set()
         self.track_sends = {}
