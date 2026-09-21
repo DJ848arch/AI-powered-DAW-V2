@@ -81,11 +81,38 @@ class MixerChannelStrip(QFrame):
         layout.addWidget(self.output)
 
         self.insert_summary = QLabel("Inserts: 0")
-        self.send_summary = QLabel("Sends: 0")
-        self.insert_summary.setToolTip("M2 insert chain; editing UI lands in the next M3 slice.")
-        self.send_summary.setToolTip("M2 sends; editing UI lands in the next M3 slice.")
+        self.insert_type = QComboBox()
+        self.insert_type.addItems(["identity", "gain", "offset"])
+        self.add_insert_button = QPushButton("+ Insert")
+        self.add_insert_button.clicked.connect(self._add_insert)
+        self.clear_inserts_button = QPushButton("Clear inserts")
+        self.clear_inserts_button.clicked.connect(self._clear_inserts)
         layout.addWidget(self.insert_summary)
+        layout.addWidget(self.insert_type)
+        layout.addWidget(self.add_insert_button)
+        layout.addWidget(self.clear_inserts_button)
+
+        self.send_summary = QLabel("Sends: 0")
+        self.send_dest = QComboBox()
+        self.send_mode = QComboBox()
+        self.send_mode.addItems(["post", "pre"])
+        self.send_mode.currentTextChanged.connect(self._set_send_mode)
+        self.add_send_button = QPushButton("+ Send")
+        self.add_send_button.clicked.connect(self._add_send)
+        self.send_select = QComboBox()
+        self.send_select.currentIndexChanged.connect(self._load_send_editor)
+        self.send_level = QSlider(Qt.Orientation.Horizontal)
+        self.send_level.setRange(0, 200)
+        self.send_level.valueChanged.connect(self._set_send_level)
+        self.remove_send_button = QPushButton("Remove send")
+        self.remove_send_button.clicked.connect(self._remove_send)
         layout.addWidget(self.send_summary)
+        layout.addWidget(self.send_dest)
+        layout.addWidget(self.send_mode)
+        layout.addWidget(self.add_send_button)
+        layout.addWidget(self.send_select)
+        layout.addWidget(self.send_level)
+        layout.addWidget(self.remove_send_button)
 
         if self.kind == "track":
             self.mute.toggled.connect(self._on_mute)
@@ -98,8 +125,13 @@ class MixerChannelStrip(QFrame):
             self.fader.setEnabled(False)
             self.pan.setEnabled(False)
             self.output.hide()
-            self.insert_summary.hide()
-            self.send_summary.hide()
+            for widget in (
+                self.insert_summary, self.insert_type, self.add_insert_button,
+                self.clear_inserts_button, self.send_summary, self.send_dest,
+                self.send_mode, self.add_send_button, self.send_select,
+                self.send_level, self.remove_send_button,
+            ):
+                widget.hide()
 
         self.sync_from_engine()
 
@@ -126,10 +158,11 @@ class MixerChannelStrip(QFrame):
             out.append((bus, bus))
         return out
 
-    def _set_combo_value(self, value):
-        for i in range(self.output.count()):
-            if self.output.itemData(i) == value:
-                self.output.setCurrentIndex(i)
+    def _set_combo_value(self, value, combo=None):
+        combo = combo or self.output
+        for i in range(combo.count()):
+            if combo.itemData(i) == value:
+                combo.setCurrentIndex(i)
                 return
 
     def sync_from_engine(self):
@@ -157,7 +190,28 @@ class MixerChannelStrip(QFrame):
                     self.output.addItem(label, value)
                 self._set_combo_value(dest)
                 self.insert_summary.setText(f"Inserts: {len(self.engine.get_inserts(self.channel_id))}")
-                self.send_summary.setText(f"Sends: {len(self.engine.get_sends(self.channel_id))}")
+
+                self.send_dest.blockSignals(True)
+                self.send_dest.clear()
+                for label, value in self._destinations():
+                    if value != "master":
+                        self.send_dest.addItem(label, value)
+                self.send_dest.blockSignals(False)
+
+                sends = self.engine.get_sends(self.channel_id)
+                selected = self.send_select.currentData()
+                self.send_select.blockSignals(True)
+                self.send_select.clear()
+                for send_dest in sends:
+                    self.send_select.addItem(str(send_dest), send_dest)
+                if selected in sends:
+                    self._set_combo_value(selected, combo=self.send_select)
+                self.send_select.blockSignals(False)
+                self.send_summary.setText(f"Sends: {len(sends)}")
+                self.send_level.setEnabled(bool(sends))
+                self.remove_send_button.setEnabled(bool(sends))
+                if sends:
+                    self._load_send_editor()
         finally:
             self.fader.blockSignals(False)
             self.pan.blockSignals(False)
@@ -205,6 +259,83 @@ class MixerChannelStrip(QFrame):
         except (ValueError, RuntimeError):
             self.sync_from_engine()
             return
+        self.changed.emit()
+
+    def _add_insert(self):
+        if self.kind == "master":
+            return
+        self.engine.add_insert(
+            self.channel_id,
+            {"type": self.insert_type.currentText(), "enabled": True},
+        )
+        self.sync_from_engine()
+        self.changed.emit()
+
+    def _clear_inserts(self):
+        if self.kind == "master":
+            return
+        self.engine.set_inserts(self.channel_id, [])
+        self.sync_from_engine()
+        self.changed.emit()
+
+    def _add_send(self):
+        if self.kind == "master" or self.send_dest.currentIndex() < 0:
+            return
+        try:
+            self.engine.add_send(
+                self.channel_id,
+                self.send_dest.currentData(),
+                level=1.0,
+                mode=self.send_mode.currentText(),
+            )
+        except (ValueError, RuntimeError):
+            self.sync_from_engine()
+            return
+        self.sync_from_engine()
+        self.changed.emit()
+
+    def _load_send_editor(self):
+        if self.send_select.currentIndex() < 0:
+            return
+        dest = self.send_select.currentData()
+        self.send_level.blockSignals(True)
+        self.send_mode.blockSignals(True)
+        try:
+            self.send_level.setValue(
+                round(self.engine.get_send_level(self.channel_id, dest) * 100)
+            )
+            self.send_mode.setCurrentText(
+                self.engine.get_send_mode(self.channel_id, dest)
+            )
+        finally:
+            self.send_level.blockSignals(False)
+            self.send_mode.blockSignals(False)
+
+    def _set_send_level(self, value):
+        if self.send_select.currentIndex() < 0:
+            return
+        self.engine.set_send_level(
+            self.channel_id, self.send_select.currentData(), value / 100.0
+        )
+        self.changed.emit()
+
+    def _set_send_mode(self, mode):
+        if self.send_select.currentIndex() < 0:
+            return
+        try:
+            self.engine.set_send_mode(
+                self.channel_id, self.send_select.currentData(), mode
+            )
+        except (ValueError, RuntimeError):
+            self.sync_from_engine()
+            return
+        self.changed.emit()
+
+    def _remove_send(self):
+        if self.send_select.currentIndex() < 0:
+            return
+        self.engine.remove_send(self.channel_id, self.send_select.currentData())
+        self.sync_from_engine()
         self.changed.emit()
 
 
