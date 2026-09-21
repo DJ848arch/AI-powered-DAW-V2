@@ -522,7 +522,7 @@ class MainWindow(QMainWindow):
     def _on_play(self):
         """Handle play button"""
         self.status_label.setText("Playing...")
-        self.audio_engine.clear()
+        self.audio_engine.clear_audio()
         for clip in self.timeline.clips.values():
             if isinstance(clip, MidiClip):
                 continue
