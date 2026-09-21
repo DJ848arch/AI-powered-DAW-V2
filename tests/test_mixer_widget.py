@@ -166,3 +166,23 @@ def test_main_window_track_panel_changes_sync_to_mixer(qapp):
     finally:
         win.meter_timer.stop()
         win.close()
+
+
+def test_clear_audio_preserves_mixer_graph(qapp):
+    engine = AudioEngine()
+    engine.initialize()
+    engine.set_track_volume(0, 0.6)
+    engine.add_bus("fx")
+    engine.set_track_output(0, "fx")
+    engine.add_insert(0, {"type": "gain", "enabled": True})
+    engine.add_send(0, "fx", level=0.4, mode="pre")
+
+    engine.clear_audio()
+
+    assert engine.track_volumes[0] == 0.6
+    assert engine.get_track_output(0) == "fx"
+    assert "fx" in engine.list_buses()
+    assert engine.get_inserts(0)[0]["type"] == "gain"
+    assert engine.get_sends(0) == ["fx"]
+    assert engine.get_send_level(0, "fx") == 0.4
+    assert engine.get_send_mode(0, "fx") == "pre"
