@@ -53,14 +53,15 @@ def _play_offline(win):
 
 
 def test_on_play_source_timeline_clip_loading_contract():
-    """_on_play either still skips timeline.clips, or clear+loads them."""
+    """_on_play either still skips timeline.clips, or clears audio then reloads them."""
     source = _on_play_source()
     if _play_loads_timeline_clips(source):
         assert "load_audio" in source or "load_clips" in source
         assert "timeline.clips" in source or "self.timeline.clips" in source
-        # second play must not stack: clear / reload
+        # second play must not stack. M3 uses clear_audio() so routing/sends/inserts survive.
         assert (
-            "clear(" in source
+            "clear_audio(" in source
+            or "clear(" in source
             or ".clear(" in source
             or "unload" in source
             or "self.audio_engine.clips" in source
