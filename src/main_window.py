@@ -22,6 +22,7 @@ from project import ProjectManager
 from audio_engine import AudioEngine
 from midi_clip import MidiClip, MidiNote
 from piano_roll import PianoRoll
+from mixer_widget import MixerWidget
 from agent_manager import AgentManager
 import midi_synth
 
@@ -106,6 +107,12 @@ class MainWindow(QMainWindow):
         self.audio_engine.error_occurred.connect(self._on_engine_error)
         self.track_panel.track_selected.connect(self._on_track_selected)
         self.track_panel.output_changed.connect(self._on_track_output_changed)
+        self.track_panel.volume_changed.connect(self._on_track_volume_changed)
+        self.track_panel.pan_changed.connect(self._on_track_pan_changed)
+        self.track_panel.mute_changed.connect(self._on_track_mute_changed)
+        self.track_panel.solo_changed.connect(self._on_track_solo_changed)
+        self.track_panel.track_renamed.connect(self._on_track_renamed)
+        self.track_panel.track_removed.connect(self._on_track_removed)
         
     def _create_actions(self):
         """Create all application actions"""
@@ -186,6 +193,11 @@ class MainWindow(QMainWindow):
         self.zoom_fit_action = QAction("Zoom to &Fit", self)
         self.zoom_fit_action.setShortcut(QKeySequence("Ctrl+0"))
         self.zoom_fit_action.triggered.connect(self._zoom_fit)
+
+        self.mixer_action = QAction("&Mixer", self)
+        self.mixer_action.setCheckable(True)
+        self.mixer_action.setStatusTip("Show or hide the desktop mixer")
+        self.mixer_action.triggered.connect(self._toggle_mixer)
         
         # AI Agent actions
         self.open_chat_action = QAction("Open AI &Chat", self)
@@ -232,6 +244,8 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.zoom_in_action)
         view_menu.addAction(self.zoom_out_action)
         view_menu.addAction(self.zoom_fit_action)
+        view_menu.addSeparator()
+        view_menu.addAction(self.mixer_action)
         
         # AI Agent menu
         ai_menu = menubar.addMenu("&AI Agent")
@@ -313,6 +327,20 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.TopDockWidgetArea
         )
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.piano_roll_dock)
+
+        self.mixer_widget = MixerWidget(self.audio_engine)
+        self.mixer_dock = QDockWidget("Mixer", self)
+        self.mixer_dock.setWidget(self.mixer_widget)
+        self.mixer_dock.setAllowedAreas(
+            Qt.DockWidgetArea.BottomDockWidgetArea |
+            Qt.DockWidgetArea.TopDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.mixer_dock)
+        self.mixer_widget.changed.connect(self._on_mixer_changed)
+        self.mixer_dock.visibilityChanged.connect(self.mixer_action.setChecked)
+        self.mixer_dock.hide()
+        self._sync_mixer()
+
         self.piano_roll.set_clip(self._clip_for_selected_track())
         self.piano_roll.note_added.connect(self._on_midi_note_added)
         self.chat_widget.set_agent_manager(self.agent_manager)
@@ -327,6 +355,7 @@ class MainWindow(QMainWindow):
             self.project_manager.new_project()
             self.timeline.clear()
             self.track_panel.clear()
+            self._sync_mixer()
             self.midi_clips = []
             self._applied_track_session = None
             self.piano_roll.set_clip(self._clip_for_selected_track())
@@ -432,14 +461,16 @@ class MainWindow(QMainWindow):
         """Add a new track"""
         track_id = self.track_panel.add_track()
         self.timeline.add_track(track_id)
+        self._sync_mixer()
         self.is_modified = True
         
     def _remove_track(self):
         """Remove selected track"""
         track_id = self.track_panel.get_selected_track()
-        if track_id:
+        if track_id is not None:
             self.track_panel.remove_track(track_id)
             self.timeline.remove_track(track_id)
+            self._sync_mixer()
             self.is_modified = True
             
     def _zoom_in(self):
@@ -454,6 +485,14 @@ class MainWindow(QMainWindow):
         """Zoom to fit all content"""
         self.timeline.zoom_to_fit()
         
+    def _toggle_mixer(self):
+        """Toggle the dedicated desktop mixer."""
+        if self.mixer_dock.isVisible():
+            self.mixer_dock.hide()
+        else:
+            self._sync_mixer()
+            self.mixer_dock.show()
+
     def _toggle_chat(self):
         """Toggle AI chat visibility"""
         if self.chat_dock.isVisible():
@@ -483,7 +522,7 @@ class MainWindow(QMainWindow):
     def _on_play(self):
         """Handle play button"""
         self.status_label.setText("Playing...")
-        self.audio_engine.clear()
+        self.audio_engine.clear_audio()
         for clip in self.timeline.clips.values():
             if isinstance(clip, MidiClip):
                 continue
@@ -524,6 +563,8 @@ class MainWindow(QMainWindow):
         self.timeline.stop_playback()
         self.meter_timer.stop()
         self.track_panel.clear_meters()
+        if hasattr(self, "mixer_widget"):
+            self.mixer_widget.clear_meters()
 
     def _on_playback_position(self, position):
         """Keep the status-bar clock on the engine playhead"""
@@ -543,6 +584,8 @@ class MainWindow(QMainWindow):
         """Pull finite peak/rms from audio_engine into the track panel (non-blocking)."""
         try:
             self.track_panel.update_meters_from_engine(self.audio_engine)
+            if hasattr(self, "mixer_widget"):
+                self.mixer_widget.update_meters()
         except Exception:
             pass
 
@@ -571,6 +614,69 @@ class MainWindow(QMainWindow):
         self.midi_clips.append(clip)
         return clip
 
+    def _track_names(self):
+        return {tid: widget.name for tid, widget in self.track_panel.tracks.items()}
+
+    def _sync_mixer(self):
+        """Refresh mixer membership/names from the live UI + engine."""
+        if not hasattr(self, "mixer_widget"):
+            return
+        names = self._track_names()
+        if self.mixer_widget.track_names != names:
+            self.mixer_widget.set_track_names(names)
+        else:
+            self.mixer_widget.sync_from_engine()
+
+    def _sync_track_controls_from_engine(self):
+        """Reflect authoritative engine mixer values in TrackPanel without feedback."""
+        for tid, widget in self.track_panel.tracks.items():
+            controls = (widget.volume_slider, widget.pan_slider, widget.mute_btn, widget.solo_btn)
+            for control in controls:
+                control.blockSignals(True)
+            try:
+                widget.set_volume(self.audio_engine.track_volumes.get(tid, 1.0))
+                widget.set_pan(self.audio_engine.track_pans.get(tid, 0.0))
+                widget.set_mute(self.audio_engine.track_mutes.get(tid, False))
+                widget.set_solo(self.audio_engine.track_solos.get(tid, False))
+                widget.set_dest(self.audio_engine.get_track_output(tid))
+            finally:
+                for control in controls:
+                    control.blockSignals(False)
+
+    def _on_mixer_changed(self):
+        self._sync_track_controls_from_engine()
+        self._sync_mixer()
+        self.is_modified = True
+
+    def _on_track_volume_changed(self, track_id, value):
+        self.audio_engine.set_track_volume(track_id, value)
+        self._sync_mixer()
+        self.is_modified = True
+
+    def _on_track_pan_changed(self, track_id, value):
+        self.audio_engine.set_track_pan(track_id, value)
+        self._sync_mixer()
+        self.is_modified = True
+
+    def _on_track_mute_changed(self, track_id, value):
+        self.audio_engine.set_track_mute(track_id, value)
+        self._sync_mixer()
+        self.is_modified = True
+
+    def _on_track_solo_changed(self, track_id, value):
+        self.audio_engine.set_track_solo(track_id, value)
+        self._sync_mixer()
+        self.is_modified = True
+
+    def _on_track_renamed(self, track_id, name):
+        self._sync_mixer()
+        self.is_modified = True
+
+    def _on_track_removed(self, track_id):
+        self.timeline.remove_track(track_id)
+        self._sync_mixer()
+        self.is_modified = True
+
     def _on_track_output_changed(self, track_id, dest):
         """Write picker dest through engine.set_track_output; revert on reject."""
         engine = getattr(self, "audio_engine", None)
@@ -583,6 +689,7 @@ class MainWindow(QMainWindow):
                 track_id, engine.get_track_output(track_id)
             )
             return
+        self._sync_mixer()
         self.is_modified = True
 
     def _on_track_selected(self, track_id: int):
@@ -892,6 +999,8 @@ class MainWindow(QMainWindow):
             data.get('track_send_modes'),
         )
         self.track_panel.sync_outputs_from_engine(self.audio_engine)
+        self._sync_track_controls_from_engine()
+        self._sync_mixer()
             
     def _autosave(self):
         """Auto-save project"""
